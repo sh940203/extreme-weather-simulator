@@ -394,6 +394,19 @@
     </div>
 
     <div class="group">
+      <div class="group-label">音效 · Ambience</div>
+      <div class="rocker-row">
+        <span class="lbl">環境音效</span>
+        <div class="rocker" id="ambienceToggle" role="switch" aria-checked="false" tabindex="0"><div class="knob"></div></div>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <div class="row-head"><span class="lbl">音量</span><span class="val" id="v_ambienceVolume">55<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="ambienceVolume" min="0" max="100" value="55" step="1">
+      </div>
+      <div class="hint">依風速／陣風／降水密度即時混合風聲、雨聲與冰雹聲；首次啟用需要使用者互動以解除瀏覽器音訊限制。</div>
+    </div>
+
+    <div class="group">
       <div class="group-label">風場 · Wind</div>
       <div class="row">
         <div class="row-head"><span class="lbl">平均風速</span><span class="val" id="v_windSpeed">140<span style="color:var(--text-dim);font-weight:500;"> km/h</span></span></div>
@@ -863,6 +876,141 @@
     sub2.start(now); sub2.stop(now+dur+0.1);
   }
 
+  // ---------------- ambience (continuous wind/rain/hail texture) ----------------
+  // Every layer taps the same looping noise buffer through a different filter
+  // shape — a deep lowpass "rumble", a resonant bandpass "whistle/howl" that
+  // wobbles with an LFO and swells with the same gust envelope driving the
+  // visuals, a mid-high "hiss" for rain, a lower "roar" for rain's body, and
+  // a higher resonant "clatter" for hail/ice texture. Each mode just mixes
+  // these five layers to a different balance rather than needing bespoke
+  // synthesis per weather type.
+  var AMBIENCE_PROFILE = {
+    typhoon:   { rumble:0.75, whistle:0.55, hiss:0.75, roar:0.55, clatter:0 },
+    surge:     { rumble:0.75, whistle:0.55, hiss:0.75, roar:0.55, clatter:0 },
+    downburst: { rumble:0.70, whistle:0.60, hiss:0.55, roar:0.45, clatter:0 },
+    tornado:   { rumble:1.00, whistle:0.40, hiss:0.05, roar:0.55, clatter:0.30 },
+    hail:      { rumble:0.30, whistle:0.25, hiss:0.30, roar:0.20, clatter:0.85 },
+    blizzard:  { rumble:0.35, whistle:0.90, hiss:0.10, roar:0.05, clatter:0 },
+    icestorm:  { rumble:0.30, whistle:0.35, hiss:0.50, roar:0.30, clatter:0.15 },
+    dust:      { rumble:0.50, whistle:0.70, hiss:0.15, roar:0.10, clatter:0.10 },
+    heatwave:  { rumble:0.05, whistle:0.12, hiss:0,    roar:0,    clatter:0 },
+    sunny:     { rumble:0.05, whistle:0.15, hiss:0,    roar:0,    clatter:0 },
+    cloudy:    { rumble:0.08, whistle:0.20, hiss:0,    roar:0,    clatter:0 },
+    lightrain: { rumble:0.15, whistle:0.22, hiss:0.50, roar:0.20, clatter:0 }
+  };
+
+  var ambience = { enabled:false, volume:55, ready:false };
+
+  function buildLoopNoiseBuffer(){
+    var dur = 4, sr = actx.sampleRate;
+    var buf = actx.createBuffer(1, Math.floor(dur*sr), sr);
+    var data = buf.getChannelData(0);
+    for(var i=0;i<data.length;i++) data[i] = Math.random()*2-1;
+    return buf;
+  }
+
+  function initAmbience(){
+    if(!actx || ambience.ready) return;
+    var noiseBuf = buildLoopNoiseBuffer();
+    function loopSource(){
+      var src = actx.createBufferSource();
+      src.buffer = noiseBuf; src.loop = true; src.start();
+      return src;
+    }
+
+    ambience.master = actx.createGain();
+    ambience.master.gain.value = 0;
+    ambience.master.connect(actx.destination);
+
+    var rumbleFilter = actx.createBiquadFilter();
+    rumbleFilter.type='lowpass'; rumbleFilter.frequency.value=180; rumbleFilter.Q.value=0.6;
+    ambience.rumbleGain = actx.createGain(); ambience.rumbleGain.gain.value=0;
+    loopSource().connect(rumbleFilter); rumbleFilter.connect(ambience.rumbleGain); ambience.rumbleGain.connect(ambience.master);
+
+    ambience.whistleFilter = actx.createBiquadFilter();
+    ambience.whistleFilter.type='bandpass'; ambience.whistleFilter.frequency.value=900; ambience.whistleFilter.Q.value=4.5;
+    ambience.whistleGain = actx.createGain(); ambience.whistleGain.gain.value=0;
+    loopSource().connect(ambience.whistleFilter); ambience.whistleFilter.connect(ambience.whistleGain); ambience.whistleGain.connect(ambience.master);
+
+    var whistleLFO = actx.createOscillator(); whistleLFO.type='sine'; whistleLFO.frequency.value=0.12;
+    var whistleLFOGain = actx.createGain(); whistleLFOGain.gain.value=180;
+    whistleLFO.connect(whistleLFOGain); whistleLFOGain.connect(ambience.whistleFilter.frequency); whistleLFO.start();
+
+    var hissFilter = actx.createBiquadFilter();
+    hissFilter.type='bandpass'; hissFilter.frequency.value=3200; hissFilter.Q.value=0.7;
+    ambience.hissGain = actx.createGain(); ambience.hissGain.gain.value=0;
+    loopSource().connect(hissFilter); hissFilter.connect(ambience.hissGain); ambience.hissGain.connect(ambience.master);
+
+    var roarFilter = actx.createBiquadFilter();
+    roarFilter.type='lowpass'; roarFilter.frequency.value=500; roarFilter.Q.value=0.5;
+    ambience.roarGain = actx.createGain(); ambience.roarGain.gain.value=0;
+    loopSource().connect(roarFilter); roarFilter.connect(ambience.roarGain); ambience.roarGain.connect(ambience.master);
+
+    var clatterFilter = actx.createBiquadFilter();
+    clatterFilter.type='bandpass'; clatterFilter.frequency.value=5200; clatterFilter.Q.value=3.2;
+    ambience.clatterGain = actx.createGain(); ambience.clatterGain.gain.value=0;
+    loopSource().connect(clatterFilter); clatterFilter.connect(ambience.clatterGain); ambience.clatterGain.connect(ambience.master);
+
+    ambience.ready = true;
+  }
+
+  function setAmbienceEnabled(on){
+    ambience.enabled = on;
+    if(on) initAmbience();
+    if(ambience.ready) ambience.master.gain.setTargetAtTime(on?1:0, actx.currentTime, 0.2);
+  }
+
+  // gust is the same signed value driving the visual wind; rescaled to a
+  // 0..1 envelope so wind sound swells in sync with the wind sway on screen
+  function updateAmbience(gust){
+    if(!ambience.ready || !ambience.enabled) return;
+    var prof = AMBIENCE_PROFILE[currentMode] || AMBIENCE_PROFILE.sunny;
+    var vol = ambience.volume/100;
+    var windNorm = Math.min(1, params.windSpeed/220);
+    var rainNorm = Math.min(1, params.density/2200);
+    var gustEnvelope = Math.max(0, Math.min(1, 0.5+gust));
+    var now = actx.currentTime;
+
+    ambience.rumbleGain.gain.setTargetAtTime(prof.rumble*(0.2+windNorm*0.8)*(0.7+gustEnvelope*0.3)*vol, now, 0.5);
+    ambience.whistleGain.gain.setTargetAtTime(prof.whistle*(0.15+windNorm*0.85)*(0.4+gustEnvelope*0.6)*vol, now, 0.3);
+    ambience.hissGain.gain.setTargetAtTime(prof.hiss*rainNorm*vol, now, 0.5);
+    ambience.roarGain.gain.setTargetAtTime(prof.roar*rainNorm*vol, now, 0.5);
+    ambience.clatterGain.gain.setTargetAtTime(prof.clatter*rainNorm*vol, now, 0.4);
+    ambience.whistleFilter.frequency.setTargetAtTime(750+gustEnvelope*450+windNorm*300, now, 0.35);
+  }
+
+  // occasional sharper "whoosh" transient for sudden fierce gusts, layered
+  // on top of the steady wind bed rather than being the wind bed itself
+  var gustWhooshCooldown = 0;
+  function maybeTriggerGustWhoosh(dt){
+    if(!ambience.ready || !ambience.enabled) return;
+    gustWhooshCooldown = Math.max(0, gustWhooshCooldown-dt);
+    if(gustWhooshCooldown>0) return;
+    var windNorm = params.windSpeed/250, gustNorm = params.gustiness/100;
+    if(Math.random() < windNorm*gustNorm*0.5*dt){
+      playGustWhoosh(windNorm);
+      gustWhooshCooldown = 1.2;
+    }
+  }
+  function playGustWhoosh(windNorm){
+    var now = actx.currentTime;
+    var dur = 0.8+Math.random()*0.6;
+    var buf = actx.createBuffer(1, Math.floor(actx.sampleRate*dur), actx.sampleRate);
+    var data = buf.getChannelData(0);
+    for(var i=0;i<data.length;i++) data[i]=Math.random()*2-1;
+    var src = actx.createBufferSource(); src.buffer=buf;
+    var bp = actx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=1.2;
+    bp.frequency.setValueAtTime(500+Math.random()*300, now);
+    bp.frequency.linearRampToValueAtTime(1400+Math.random()*400, now+dur*0.4);
+    bp.frequency.linearRampToValueAtTime(300, now+dur);
+    var g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.35*windNorm*(ambience.volume/100), now+dur*0.25);
+    g.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+    src.connect(bp); bp.connect(g); g.connect(ambience.master);
+    src.start(now); src.stop(now+dur+0.1);
+  }
+
   // ---------------- impact effects ----------------
   function spawnSplash(x, y, layerSpeed){
     var n = Math.round(rand(1,4) * (0.3 + params.splashIntensity/100*1.4));
@@ -915,6 +1063,9 @@
     var profile = MODE_PROFILE[currentMode];
     var gust = windGust(t) * (params.gustiness/100);
     var baseWind = params.windSpeed * 0.6 * profile.windMul;
+
+    updateAmbience(gust);
+    maybeTriggerGustWhoosh(dt);
 
     var fallScale = params.fallSpeed/100;
     var sizeScale = params.dropSize/100;
@@ -2279,6 +2430,22 @@
     daylightToggle.classList.toggle('on', daylight.enabled);
     daylightToggle.setAttribute('aria-checked', daylight.enabled ? 'true':'false');
   });
+
+  var ambienceToggle = document.getElementById('ambienceToggle');
+  ambienceToggle.addEventListener('click', function(){
+    ensureAudio();
+    setAmbienceEnabled(!ambience.enabled);
+    ambienceToggle.classList.toggle('on', ambience.enabled);
+    ambienceToggle.setAttribute('aria-checked', ambience.enabled ? 'true':'false');
+  });
+  var ambienceVolumeEl = document.getElementById('ambienceVolume');
+  ambienceVolumeEl.addEventListener('input', function(){
+    ambience.volume = +ambienceVolumeEl.value;
+    syncSliderFill(ambienceVolumeEl);
+    var vEl = document.getElementById('v_ambienceVolume');
+    if(vEl.firstChild) vEl.firstChild.nodeValue = ambience.volume;
+  });
+  syncSliderFill(ambienceVolumeEl);
 
   var panel = document.getElementById('panel');
   var panelToggle = document.getElementById('panelToggle');
