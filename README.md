@@ -4,6 +4,8 @@ Interactive, physics-approximated extreme weather simulator rendered entirely
 in a single self-contained HTML file — Canvas 2D + vanilla JS, no build step,
 no dependencies, no external requests.
 
+**Live demo:** https://extreme-weather-simulator.vercel.app
+
 ## Features
 
 - **9 weather modes** — 颱風暴雨 Typhoon, 強對流冰雹 Hail, 龍捲風 Tornado,
