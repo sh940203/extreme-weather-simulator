@@ -1,0 +1,1874 @@
+<meta charset="UTF-8">
+<title>極端氣候動態模擬儀</title>
+<style>
+  :root{
+    --bg-sky-top:#04060a;
+    --bg-sky-bottom:#0d1420;
+    --panel:#141a24;
+    --panel-hi:#1c2432;
+    --panel-lo:#0e131b;
+    --hairline:rgba(220,232,255,0.09);
+    --hairline-strong:rgba(220,232,255,0.16);
+    --text-primary:#e7edf6;
+    --text-muted:#8593a8;
+    --text-dim:#57647a;
+    --amber:#ffb454;
+    --amber-dim:#8a6432;
+    --cyan:#bcd8ff;
+    --danger:#ff6a5c;
+    --ok:#63d2a0;
+    --font-label:600 11px/1.2 ui-sans-serif,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+    --font-body:400 13px/1.55 ui-sans-serif,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+    --font-mono:600 13px/1 ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,monospace;
+    --font-nameplate:700 15px/1 ui-sans-serif,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+    color-scheme: dark;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%; overflow:hidden;
+    background:var(--bg-sky-top);
+    font-family:var(--font-body);
+    color:var(--text-primary);
+  }
+
+  #stage{
+    position:fixed; inset:0;
+    display:block;
+    cursor:default;
+  }
+
+  #flash{
+    position:fixed; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse at var(--fx,50%) var(--fy,20%), rgba(235,240,255,0.9), rgba(210,222,255,0.35) 45%, rgba(200,215,255,0) 75%);
+    opacity:0; mix-blend-mode:screen;
+    z-index:5;
+  }
+
+  /* ---------- Signal badge ---------- */
+  #badge{
+    position:fixed; top:18px; left:18px; z-index:6;
+    display:flex; align-items:center; gap:10px;
+    background:linear-gradient(180deg,var(--panel-hi),var(--panel));
+    border:1px solid var(--hairline-strong);
+    border-radius:6px;
+    padding:9px 14px 9px 10px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
+    max-width:min(78vw,320px);
+  }
+  #badge .dot{
+    width:9px; height:9px; border-radius:50%;
+    background:var(--sig-color,var(--ok));
+    box-shadow:0 0 8px 2px var(--sig-color,var(--ok));
+    transition:background .4s, box-shadow .4s;
+    flex:none;
+  }
+  #badge .txt{display:flex; flex-direction:column; gap:2px; min-width:0;}
+  #badge .cat{
+    font:var(--font-nameplate); letter-spacing:0.02em;
+    color:var(--sig-color,var(--ok)); transition:color .4s;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  #badge .sub{
+    font:var(--font-mono); font-weight:500; font-size:11px;
+    color:var(--text-muted); letter-spacing:0.02em;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+
+  /* ---------- Console panel ---------- */
+  #panel{
+    position:fixed; top:0; right:0; bottom:0; z-index:6;
+    width:336px;
+    background:
+      linear-gradient(155deg,rgba(255,255,255,0.03),rgba(255,255,255,0) 30%),
+      linear-gradient(180deg,var(--panel-hi) 0%,var(--panel) 6%,var(--panel-lo) 100%);
+    border-left:1px solid var(--hairline-strong);
+    box-shadow:-24px 0 48px rgba(0,0,0,0.5);
+    display:flex; flex-direction:column;
+    transform:translateX(0);
+    transition:transform .35s cubic-bezier(.65,0,.35,1);
+  }
+  #panel.collapsed{ transform:translateX(100%); }
+  @media (prefers-reduced-motion:reduce){ #panel{ transition:none; } }
+
+  #panelToggle{
+    position:fixed; top:18px; right:18px; z-index:7;
+    width:34px; height:34px; border-radius:6px;
+    background:linear-gradient(180deg,var(--panel-hi),var(--panel));
+    border:1px solid var(--hairline-strong);
+    color:var(--text-muted);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; transition:right .35s cubic-bezier(.65,0,.35,1), color .2s;
+  }
+  #panelToggle:hover{ color:var(--amber); }
+  #panelToggle.shifted{ right:354px; }
+  @media (prefers-reduced-motion:reduce){ #panelToggle{ transition:color .2s; } }
+
+  #panelHead{
+    flex:none; padding:22px 20px 16px;
+    border-bottom:1px solid var(--hairline);
+    position:relative;
+  }
+  #panelHead::before,#panelHead::after{
+    content:""; position:absolute; top:10px; width:5px; height:5px; border-radius:50%;
+    background:radial-gradient(circle at 35% 35%,#3a4658,#0a0e15);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.05);
+  }
+  #panelHead::before{ left:10px; }
+  #panelHead::after{ right:10px; }
+  #nameplate{
+    font:var(--font-nameplate); letter-spacing:0.03em; color:var(--text-primary);
+  }
+  #nameplate small{
+    display:block; margin-top:5px;
+    font:var(--font-label); font-weight:500; letter-spacing:0.1em;
+    color:var(--text-dim); text-transform:uppercase;
+  }
+
+  #panelBody{
+    flex:1; overflow-y:auto; padding:6px 20px 20px;
+    scrollbar-width:thin; scrollbar-color:var(--hairline-strong) transparent;
+  }
+  #panelBody::-webkit-scrollbar{ width:6px; }
+  #panelBody::-webkit-scrollbar-thumb{ background:var(--hairline-strong); border-radius:3px; }
+
+  .group{ margin-top:20px; }
+  .group:first-child{ margin-top:16px; }
+  .group[hidden]{ display:none; }
+  .group-label{
+    font:var(--font-label); letter-spacing:0.16em; text-transform:uppercase;
+    color:var(--text-dim); margin-bottom:10px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .group-label::after{
+    content:""; flex:1; height:1px; background:var(--hairline);
+  }
+
+  .row{ margin-top:14px; }
+  .row:first-child{ margin-top:0; }
+  .row-head{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin-bottom:7px;
+  }
+  .row-head .lbl{ font:var(--font-body); font-size:12.5px; color:var(--text-muted); }
+  .row-head .val{
+    font:var(--font-mono); color:var(--amber); font-variant-numeric:tabular-nums;
+    min-width:3ch; text-align:right;
+  }
+
+  /* fader-style range input */
+  input[type=range]{
+    -webkit-appearance:none; appearance:none;
+    width:100%; height:22px; background:transparent; margin:0; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:4px; border-radius:2px;
+    background:linear-gradient(90deg,var(--amber-dim) 0%, var(--amber) var(--fill,50%), var(--hairline) var(--fill,50%));
+    box-shadow:inset 0 1px 2px rgba(0,0,0,0.6);
+  }
+  input[type=range]::-moz-range-track{
+    height:4px; border-radius:2px; background:var(--hairline);
+  }
+  input[type=range]::-moz-range-progress{
+    height:4px; border-radius:2px; background:linear-gradient(90deg,var(--amber-dim),var(--amber));
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:14px; height:20px; margin-top:-8px; border-radius:3px;
+    background:linear-gradient(180deg,#3a4658,#1a2029);
+    border:1px solid rgba(255,255,255,0.14);
+    box-shadow:0 2px 5px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(0,0,0,0.4);
+    position:relative;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:20px; border-radius:3px; border:1px solid rgba(255,255,255,0.14);
+    background:linear-gradient(180deg,#3a4658,#1a2029);
+    box-shadow:0 2px 5px rgba(0,0,0,0.6);
+  }
+  input[type=range]:focus-visible::-webkit-slider-thumb{
+    outline:2px solid var(--cyan); outline-offset:2px;
+  }
+
+  /* segmented controls (severity + mode grid) */
+  .segmented{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:1px;
+    background:var(--hairline); border:1px solid var(--hairline-strong);
+    border-radius:5px; overflow:hidden;
+  }
+  .segmented button{
+    appearance:none; border:none; cursor:pointer;
+    background:var(--panel-lo); color:var(--text-muted);
+    font:var(--font-label); letter-spacing:0.04em;
+    padding:9px 4px; text-align:center;
+    transition:background .15s, color .15s;
+  }
+  .segmented button:hover{ color:var(--text-primary); }
+  .segmented button.active{
+    background:linear-gradient(180deg,#2a2013,#1c1608);
+    color:var(--amber);
+  }
+
+  .mode-grid{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:1px;
+    background:var(--hairline); border:1px solid var(--hairline-strong);
+    border-radius:5px; overflow:hidden;
+  }
+  .mode-grid button{
+    appearance:none; border:none; cursor:pointer;
+    background:var(--panel-lo); color:var(--text-muted);
+    font:600 10.5px/1.3 ui-sans-serif,sans-serif; letter-spacing:0.01em;
+    padding:9px 3px; text-align:center;
+    transition:background .15s, color .15s;
+  }
+  .mode-grid button:hover{ color:var(--text-primary); }
+  .mode-grid button.active{
+    background:linear-gradient(180deg,#2a2013,#1c1608);
+    color:var(--amber);
+  }
+  .mode-desc{
+    margin-top:9px; font:400 11px/1.55 ui-sans-serif,sans-serif; color:var(--text-dim);
+  }
+
+  .hint{
+    font:400 11px/1.5 ui-sans-serif,sans-serif; color:var(--text-dim); margin-top:5px;
+  }
+
+  /* rocker switch */
+  .rocker-row{
+    display:flex; align-items:center; justify-content:space-between; margin-top:14px;
+  }
+  .rocker-row .lbl{ font-size:12.5px; color:var(--text-muted); }
+  .rocker{
+    width:42px; height:22px; border-radius:11px; position:relative; cursor:pointer;
+    background:var(--panel-lo); border:1px solid var(--hairline-strong);
+    box-shadow:inset 0 1px 3px rgba(0,0,0,0.6);
+    flex:none;
+  }
+  .rocker .knob{
+    position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%;
+    background:linear-gradient(180deg,#4a5668,#232a35);
+    box-shadow:0 1px 3px rgba(0,0,0,0.5);
+    transition:left .18s ease, background .18s;
+  }
+  .rocker.on{ border-color:var(--amber-dim); }
+  .rocker.on .knob{ left:22px; background:linear-gradient(180deg,#ffcf8c,var(--amber)); }
+
+  .iconbtn{
+    appearance:none; border:1px solid var(--hairline-strong); cursor:pointer;
+    background:var(--panel-lo); color:var(--text-muted);
+    width:30px; height:30px; border-radius:5px;
+    display:flex; align-items:center; justify-content:center;
+    transition:color .15s, border-color .15s;
+  }
+  .iconbtn:hover{ color:var(--amber); border-color:var(--amber-dim); }
+  .iconbtn.wide{ width:100%; gap:8px; }
+  .iconbtn.wide span{ font:var(--font-label); letter-spacing:0.08em; }
+  .iconbtn:disabled{ opacity:0.5; cursor:default; }
+  .iconbtn:disabled:hover{ color:var(--text-muted); border-color:var(--hairline-strong); }
+
+  #transport{
+    display:flex; gap:8px; margin-top:16px;
+  }
+  #transport .iconbtn{ flex:1; width:auto; gap:6px; }
+  #transport .iconbtn span{ font:var(--font-label); letter-spacing:0.08em; }
+
+  .scenario-card{
+    margin-top:12px; padding:12px 12px 4px; border-radius:6px;
+    background:var(--panel-lo); border:1px solid var(--hairline);
+  }
+  .scenario-row{
+    display:flex; justify-content:space-between; gap:10px;
+    font-size:11.5px; color:var(--text-muted); padding:4px 0;
+    border-bottom:1px solid var(--hairline);
+  }
+  .scenario-row:last-of-type{ border-bottom:none; }
+  .scenario-row .v{
+    font:var(--font-mono); font-size:11px; color:var(--text-primary);
+    font-variant-numeric:tabular-nums; text-align:right;
+  }
+  .scenario-result{
+    margin-top:6px; padding:9px 0 10px;
+    font-size:12.5px; color:var(--amber); font-weight:600;
+  }
+
+  #credit{
+    flex:none; padding:12px 20px 16px; border-top:1px solid var(--hairline);
+    font:400 10.5px/1.5 ui-sans-serif,sans-serif; color:var(--text-dim); letter-spacing:0.02em;
+  }
+
+  @media (max-width:720px){
+    #panel{ width:100%; top:auto; height:76vh; border-left:none; border-top:1px solid var(--hairline-strong); box-shadow:0 -24px 48px rgba(0,0,0,0.5); }
+    #panel.collapsed{ transform:translateY(100%); }
+    #panelToggle.shifted{ right:18px; top:calc(24vh - 52px); }
+  }
+</style>
+
+<canvas id="stage"></canvas>
+<div id="flash"></div>
+
+<div id="badge">
+  <span class="dot"></span>
+  <span class="txt">
+    <span class="cat" id="badgeCat">中度颱風</span>
+    <span class="sub" id="badgeSub">風速 —— km/h ・ 陣風 ——</span>
+  </span>
+</div>
+
+<button id="panelToggle" aria-label="切換控制面板" title="切換控制面板">
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" id="toggleIcon"><path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
+
+<div id="panel">
+  <div id="panelHead">
+    <div id="nameplate">極端氣候動態模擬儀
+      <small id="nameplateSub">即時風雨物理模型 · EXTREME WEATHER</small>
+    </div>
+  </div>
+
+  <div id="panelBody">
+
+    <div class="group">
+      <div class="group-label">在地情境 · Here &amp; Now</div>
+      <button class="iconbtn wide" id="btnLocate">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1C4 1 2 3 2 5.5C2 8.8 6.5 12 6.5 12C6.5 12 11 8.8 11 5.5C11 3 9 1 6.5 1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="6.5" cy="5.5" r="1.6" stroke="currentColor" stroke-width="1.3"/></svg>
+        <span id="locateLabel">定位並推算目前情境</span>
+      </button>
+      <div class="scenario-card" id="scenarioCard" hidden>
+        <div class="scenario-row"><span>座標</span><span class="v" id="scLatLng">—</span></div>
+        <div class="scenario-row"><span>當地時間</span><span class="v" id="scTime">—</span></div>
+        <div class="scenario-row"><span>氣候帶 / 季節</span><span class="v" id="scZone">—</span></div>
+        <div class="scenario-row"><span>太陽高度角</span><span class="v" id="scSun">—</span></div>
+        <div class="scenario-result" id="scResult">→ 推算情境：—</div>
+        <button class="iconbtn wide" id="btnApplyScenario"><span>套用此情境</span></button>
+        <div class="rocker-row" style="margin-top:12px;">
+          <span class="lbl">跟隨當地晝夜光照</span>
+          <div class="rocker" id="daylightToggle" role="switch" aria-checked="false" tabindex="0"><div class="knob"></div></div>
+        </div>
+        <div class="hint" style="padding-bottom:10px;">依緯度氣候帶＋當地季節推算，非即時觀測天氣。</div>
+      </div>
+      <div class="hint" id="scenarioHint">用你目前的座標與當地時間，推算此刻最可能出現的極端天氣型態與晝夜光照——這是粗略的氣候推算，不是即時天氣觀測。</div>
+    </div>
+
+    <div class="group">
+      <div class="group-label">天氣型態</div>
+      <div class="mode-grid" id="modeGrid">
+        <button data-mode="typhoon" class="active">颱風暴雨</button>
+        <button data-mode="hail">強對流冰雹</button>
+        <button data-mode="tornado">龍捲風</button>
+        <button data-mode="blizzard">暴風雪</button>
+        <button data-mode="dust">沙塵暴</button>
+        <button data-mode="surge">風暴潮</button>
+        <button data-mode="downburst">下擊暴流</button>
+        <button data-mode="icestorm">凍雨冰暴</button>
+        <button data-mode="heatwave">熱浪乾旱</button>
+      </div>
+      <div class="mode-desc" id="modeDesc">熱帶氣旋伴隨強風驟雨與外圍雷雨胞</div>
+    </div>
+
+    <div class="group">
+      <div class="group-label">強度預設</div>
+      <div class="segmented" id="presetGroup">
+        <button data-preset="light">輕度</button>
+        <button data-preset="mid" class="active">中度</button>
+        <button data-preset="severe">強烈</button>
+      </div>
+      <div id="transport">
+        <button class="iconbtn" id="btnPause" title="暫停 / 繼續">
+          <svg width="13" height="13" viewBox="0 0 13 13" id="pauseIcon"><rect x="2" y="1.5" width="3" height="10" fill="currentColor"/><rect x="8" y="1.5" width="3" height="10" fill="currentColor"/></svg>
+          <span id="pauseLabel">暫停</span>
+        </button>
+        <button class="iconbtn" id="btnReset" title="重置系統">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M11 6.5A4.5 4.5 0 1 1 9.3 3.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M11 1.8V4.6H8.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>重置</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-label">風場 · Wind</div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">平均風速</span><span class="val" id="v_windSpeed">140<span style="color:var(--text-dim);font-weight:500;"> km/h</span></span></div>
+        <input type="range" id="windSpeed" min="0" max="250" value="140" step="1">
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">陣風擾動</span><span class="val" id="v_gustiness">55<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="gustiness" min="0" max="100" value="55" step="1">
+      </div>
+    </div>
+
+    <div class="group" id="precipGroup">
+      <div class="group-label" id="precipTitle">降水 · Precipitation</div>
+      <div class="row">
+        <div class="row-head"><span class="lbl" id="lbl_density">雨滴密度</span><span class="val" id="v_density">1400</span></div>
+        <input type="range" id="density" min="100" max="3000" value="1400" step="50">
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="lbl" id="lbl_dropSize">雨滴粒徑</span><span class="val" id="v_dropSize">100<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="dropSize" min="40" max="220" value="100" step="1">
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="lbl" id="lbl_fallSpeed">落下速度</span><span class="val" id="v_fallSpeed">120<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="fallSpeed" min="40" max="220" value="120" step="1">
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="lbl" id="lbl_splashIntensity">濺水強度</span><span class="val" id="v_splashIntensity">70<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="splashIntensity" min="0" max="100" value="70" step="1">
+      </div>
+    </div>
+
+    <div class="group" id="tornadoGroup" hidden>
+      <div class="group-label">龍捲風 · Vortex</div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">漏斗強度</span><span class="val" id="v_funnelStrength">60<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="funnelStrength" min="0" max="100" value="60" step="1">
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">路徑擺動速度</span><span class="val" id="v_funnelWobble">55<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="funnelWobble" min="0" max="100" value="55" step="1">
+      </div>
+    </div>
+
+    <div class="group" id="surgeGroup" hidden>
+      <div class="group-label">海水倒灌 · Surge</div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">水位上升速率</span><span class="val" id="v_surgeRate">50<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="surgeRate" min="0" max="100" value="50" step="1">
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">浪高</span><span class="val" id="v_waveHeight">55<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="waveHeight" min="0" max="100" value="55" step="1">
+      </div>
+    </div>
+
+    <div class="group" id="downburstGroup" hidden>
+      <div class="group-label">下擊暴流 · Downburst</div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">下沖強度</span><span class="val" id="v_burstStrength">60<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="burstStrength" min="0" max="100" value="60" step="1">
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">爆發頻率</span><span class="val" id="v_burstFrequency">50<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="burstFrequency" min="0" max="100" value="50" step="1">
+      </div>
+    </div>
+
+    <div class="group" id="heatwaveGroup" hidden>
+      <div class="group-label">熱浪 · Heatwave</div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">熱浪扭曲強度</span><span class="val" id="v_hazeIntensity">60<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="hazeIntensity" min="0" max="100" value="60" step="1">
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">日照強度</span><span class="val" id="v_glare">68<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="glare" min="0" max="100" value="68" step="1">
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-label">大氣 · Atmosphere</div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">雲層厚度</span><span class="val" id="v_cloudDensity">60<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="cloudDensity" min="0" max="100" value="60" step="1">
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">霧氣 / 能見度</span><span class="val" id="v_fogOpacity">25<span style="color:var(--text-dim);font-weight:500;">%</span></span></div>
+        <input type="range" id="fogOpacity" min="0" max="100" value="25" step="1">
+      </div>
+    </div>
+
+    <div class="group" id="electricalGroup">
+      <div class="group-label">電擊 · Electrical</div>
+      <div class="row">
+        <div class="row-head"><span class="lbl">閃電頻率</span><span class="val" id="v_lightningFreq">6<span style="color:var(--text-dim);font-weight:500;"> /分</span></span></div>
+        <input type="range" id="lightningFreq" min="0" max="20" value="6" step="1">
+      </div>
+      <div class="rocker-row">
+        <span class="lbl">雷聲</span>
+        <div class="rocker" id="thunderToggle" role="switch" aria-checked="false" tabindex="0"><div class="knob"></div></div>
+      </div>
+      <div class="hint">首次啟用需要使用者互動以解除瀏覽器音訊限制。落雷距離決定光與聲的延遲。</div>
+    </div>
+
+  </div>
+
+  <div id="credit">物理近似模型 · 非氣象預報工具 · 參數僅供視覺化模擬</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var canvas = document.getElementById('stage');
+  var ctx = canvas.getContext('2d');
+  var DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 0, H = 0, groundY = 0;
+
+  function resize(){
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    groundY = H * 0.90;
+    if(funnel) funnel.x = W*0.5;
+    crackPaths = null;
+    glazeGlints = null;
+  }
+
+  function rand(a,b){ return a + Math.random()*(b-a); }
+
+  // ---------------- weather modes ----------------
+  var MODE_META = {
+    typhoon:  { label:'颱風暴雨',   desc:'熱帶氣旋伴隨強風驟雨與外圍雷雨胞' },
+    hail:     { label:'強對流冰雹', desc:'強烈上升氣流反覆托舉水滴結凍增長' },
+    tornado:  { label:'龍捲風',     desc:'超級胞雷暴底部旋轉氣柱觸地捲揚碎屑' },
+    blizzard: { label:'暴風雪',     desc:'低溫強風挾帶大量降雪，能見度驟降' },
+    dust:     { label:'沙塵暴',     desc:'乾旱地表遇強風揚塵，形成移動沙牆' },
+    surge:    { label:'風暴潮',     desc:'颱風低壓疊加強風堆高海水，海水倒灌陸地' },
+    downburst:{ label:'下擊暴流',   desc:'雷暴中心強烈冷空氣下衝觸地，向四周輻散爆發強風' },
+    icestorm: { label:'凍雨冰暴',   desc:'過冷雨滴落地瞬間結凍，表面覆上一層透明冰殼' },
+    heatwave: { label:'熱浪乾旱',   desc:'持續高溫少雨，地表龜裂、空氣因熱扭曲' }
+  };
+
+  var PRECIP_LABELS = {
+    typhoon:  { title:'降水 · Precipitation', density:'雨滴密度', size:'雨滴粒徑', fall:'落下速度', impact:'濺水強度' },
+    surge:    { title:'降水 · Precipitation', density:'雨滴密度', size:'雨滴粒徑', fall:'落下速度', impact:'濺水強度' },
+    downburst:{ title:'降水 · Precipitation', density:'雨滴密度', size:'雨滴粒徑', fall:'落下速度', impact:'濺水強度' },
+    hail:     { title:'冰雹 · Hail',          density:'冰雹密度', size:'冰雹粒徑', fall:'墜落速度', impact:'碎裂強度' },
+    tornado:  { title:'碎屑 · Debris',        density:'碎屑密度', size:'碎屑大小', fall:'捲揚速度', impact:'濺落強度' },
+    blizzard: { title:'降雪 · Snow',          density:'雪花密度', size:'雪花大小', fall:'飄落速度', impact:'積雪速率' },
+    dust:     { title:'揚塵 · Dust',          density:'揚塵密度', size:'沙粒粗細', fall:'翻滾速度', impact:'滾塵強度' },
+    icestorm: { title:'凍雨 · Freezing Rain', density:'雨滴密度', size:'雨滴粒徑', fall:'落下速度', impact:'結冰速率' }
+  };
+
+  // visual/physics identity per mode: sky gradient stops, cloud/fog tint, particle shape & ground behavior
+  var MODE_PROFILE = {
+    typhoon:  { sky:['#03050a','#080d16','#0e1522'], cloud:[28,36,50],  fog:[20,26,36],  shape:'line', ground:'wet',   gravity:260, windMul:0.60, colors:[[150,175,220],[175,196,235],[205,220,250]] },
+    surge:    { sky:['#03050a','#080d16','#0e1522'], cloud:[28,36,50],  fog:[20,26,36],  shape:'line', ground:'water', gravity:260, windMul:0.60, colors:[[150,175,220],[175,196,235],[205,220,250]] },
+    hail:     { sky:['#060a10','#0d131b','#151b22'], cloud:[26,32,38],  fog:[18,22,26],  shape:'blob', ground:'ice',   gravity:480, windMul:0.32, colors:[[188,193,203],[208,213,222],[230,233,240]] },
+    tornado:  { sky:['#05070a','#0c110e','#171a12'], cloud:[24,32,22],  fog:[16,20,14],  shape:'blob', ground:'wet',   gravity:260, windMul:0.62, colors:[[150,150,140],[172,168,155],[192,186,170]] },
+    blizzard: { sky:['#050810','#0b111c','#141c2c'], cloud:[188,198,215],fog:[196,206,222],shape:'flake', ground:'snow', gravity:85,  windMul:1.30, colors:[[210,220,235],[225,233,245],[244,248,253]] },
+    dust:     { sky:['#140b04','#20130a','#2c1a0e'], cloud:[92,58,28],  fog:[122,78,38], shape:'line', ground:'dust',  gravity:22,  windMul:1.00, colors:[[150,108,66],[178,132,86],[208,164,110]] },
+    downburst:{ sky:['#04070b','#0a1018','#131a21'], cloud:[26,34,42],  fog:[18,24,30],  shape:'line', ground:'wet',   gravity:300, windMul:0.55, colors:[[160,180,215],[182,198,230],[208,220,245]] },
+    icestorm: { sky:['#04070d','#0a121c','#101c28'], cloud:[40,54,68],  fog:[28,38,48],  shape:'line', ground:'glaze', gravity:220, windMul:0.45, colors:[[170,195,225],[190,210,235],[212,228,247]] },
+    heatwave: { sky:['#12253a','#a9803f','#c79a52'], cloud:[255,244,214],fog:[255,236,196],shape:'none', ground:'dry',   gravity:0,   windMul:0.45, colors:[[0,0,0],[0,0,0],[0,0,0]] }
+  };
+
+  // { windSpeed, gustiness, density, dropSize, fallSpeed, splashIntensity, cloudDensity, fogOpacity, lightningFreq,
+  //   funnelStrength, funnelWobble, surgeRate, waveHeight, hazeIntensity, glare, burstStrength, burstFrequency }
+  var EXTRA_DEFAULTS = { funnelStrength:0, funnelWobble:0, surgeRate:0, waveHeight:0, hazeIntensity:0, glare:0, burstStrength:0, burstFrequency:0 };
+
+  var MODE_PRESETS = {
+    typhoon: {
+      light:  { windSpeed:45,  gustiness:25, density:500,  dropSize:90,  fallSpeed:85,  splashIntensity:35, cloudDensity:40, fogOpacity:15, lightningFreq:1 },
+      mid:    { windSpeed:140, gustiness:55, density:1400, dropSize:100, fallSpeed:120, splashIntensity:70, cloudDensity:60, fogOpacity:25, lightningFreq:6 },
+      severe: { windSpeed:220, gustiness:85, density:2600, dropSize:130, fallSpeed:165, splashIntensity:100,cloudDensity:85, fogOpacity:40, lightningFreq:14 }
+    },
+    surge: {
+      light:  { windSpeed:60,  gustiness:35, density:700,  dropSize:95,  fallSpeed:95,  splashIntensity:45, cloudDensity:50, fogOpacity:20, lightningFreq:2, surgeRate:20, waveHeight:25 },
+      mid:    { windSpeed:150, gustiness:60, density:1500, dropSize:105, fallSpeed:130, splashIntensity:75, cloudDensity:70, fogOpacity:30, lightningFreq:7, surgeRate:50, waveHeight:55 },
+      severe: { windSpeed:225, gustiness:88, density:2500, dropSize:135, fallSpeed:170, splashIntensity:100,cloudDensity:90, fogOpacity:42, lightningFreq:14, surgeRate:88, waveHeight:92 }
+    },
+    hail: {
+      light:  { windSpeed:60,  gustiness:30, density:300,  dropSize:70,  fallSpeed:110, splashIntensity:40, cloudDensity:55, fogOpacity:20, lightningFreq:3 },
+      mid:    { windSpeed:110, gustiness:50, density:650,  dropSize:120, fallSpeed:150, splashIntensity:70, cloudDensity:75, fogOpacity:28, lightningFreq:8 },
+      severe: { windSpeed:170, gustiness:75, density:1100, dropSize:200, fallSpeed:190, splashIntensity:100,cloudDensity:90, fogOpacity:38, lightningFreq:16 }
+    },
+    tornado: {
+      light:  { windSpeed:90,  gustiness:60, density:500,  dropSize:70,  fallSpeed:100, splashIntensity:40, cloudDensity:70, fogOpacity:25, lightningFreq:4, funnelStrength:30, funnelWobble:30 },
+      mid:    { windSpeed:150, gustiness:80, density:900,  dropSize:90,  fallSpeed:120, splashIntensity:60, cloudDensity:88, fogOpacity:35, lightningFreq:9, funnelStrength:62, funnelWobble:55 },
+      severe: { windSpeed:210, gustiness:95, density:1300, dropSize:110, fallSpeed:140, splashIntensity:85, cloudDensity:97, fogOpacity:45, lightningFreq:15,funnelStrength:95, funnelWobble:80 }
+    },
+    blizzard: {
+      light:  { windSpeed:50,  gustiness:35, density:700,  dropSize:80,  fallSpeed:60,  splashIntensity:20, cloudDensity:55, fogOpacity:35, lightningFreq:0 },
+      mid:    { windSpeed:100, gustiness:60, density:1600, dropSize:110, fallSpeed:85,  splashIntensity:45, cloudDensity:75, fogOpacity:55, lightningFreq:0 },
+      severe: { windSpeed:170, gustiness:85, density:2600, dropSize:150, fallSpeed:110, splashIntensity:75, cloudDensity:92, fogOpacity:75, lightningFreq:1 }
+    },
+    dust: {
+      light:  { windSpeed:70,  gustiness:45, density:900,  dropSize:90,  fallSpeed:50,  splashIntensity:0,  cloudDensity:40, fogOpacity:45, lightningFreq:0 },
+      mid:    { windSpeed:130, gustiness:70, density:1800, dropSize:120, fallSpeed:65,  splashIntensity:0,  cloudDensity:55, fogOpacity:68, lightningFreq:2 },
+      severe: { windSpeed:200, gustiness:90, density:2800, dropSize:160, fallSpeed:80,  splashIntensity:0,  cloudDensity:70, fogOpacity:88, lightningFreq:5 }
+    },
+    heatwave: {
+      light:  { windSpeed:30, gustiness:20, cloudDensity:10, fogOpacity:15, hazeIntensity:35, glare:45 },
+      mid:    { windSpeed:55, gustiness:35, cloudDensity:5,  fogOpacity:25, hazeIntensity:60, glare:68 },
+      severe: { windSpeed:80, gustiness:55, cloudDensity:0,  fogOpacity:35, hazeIntensity:90, glare:92 }
+    },
+    downburst: {
+      light:  { windSpeed:60,  gustiness:50, density:900,  dropSize:95,  fallSpeed:110, splashIntensity:50, cloudDensity:65, fogOpacity:22, lightningFreq:5, burstStrength:35, burstFrequency:30 },
+      mid:    { windSpeed:100, gustiness:70, density:1600, dropSize:105, fallSpeed:135, splashIntensity:75, cloudDensity:82, fogOpacity:30, lightningFreq:10, burstStrength:65, burstFrequency:55 },
+      severe: { windSpeed:150, gustiness:90, density:2400, dropSize:120, fallSpeed:160, splashIntensity:100,cloudDensity:95, fogOpacity:40, lightningFreq:17, burstStrength:98, burstFrequency:85 }
+    },
+    icestorm: {
+      light:  { windSpeed:35,  gustiness:20, density:500,  dropSize:80,  fallSpeed:70,  splashIntensity:25, cloudDensity:60, fogOpacity:30, lightningFreq:0 },
+      mid:    { windSpeed:60,  gustiness:35, density:950,  dropSize:95,  fallSpeed:90,  splashIntensity:45, cloudDensity:78, fogOpacity:45, lightningFreq:0 },
+      severe: { windSpeed:95,  gustiness:55, density:1500, dropSize:110, fallSpeed:110, splashIntensity:70, cloudDensity:92, fogOpacity:60, lightningFreq:1 }
+    }
+  };
+
+  var currentMode = 'typhoon';
+  var currentSeverity = 'mid';
+
+  // ---------------- params ----------------
+  var params = {
+    windSpeed:140, gustiness:55, density:1400, dropSize:100, fallSpeed:120, splashIntensity:70,
+    cloudDensity:60, fogOpacity:25, lightningFreq:6, thunder:false,
+    funnelStrength:0, funnelWobble:0, surgeRate:0, waveHeight:0, hazeIntensity:0, glare:0,
+    burstStrength:0, burstFrequency:0
+  };
+
+  // ---------------- layers (parallax depth structure — colors come from MODE_PROFILE) ----------------
+  var LAYERS = [
+    { weight:0.42, sizeMul:0.55, speedMul:0.72, windMul:0.55 },
+    { weight:0.35, sizeMul:0.85, speedMul:0.92, windMul:0.80 },
+    { weight:0.23, sizeMul:1.25, speedMul:1.18, windMul:1.05 }
+  ];
+  var LAYER_OPACITY = [0.30, 0.50, 0.78];
+
+  var MAX_DROPS = 3200;
+  var drops = [];
+  var splashes = [];
+  var ripples = [];
+  var shards = [];
+  var bolts = [];
+  var debrisFloats = [];
+
+  function makeDrop(layerIdx, spawnAbove){
+    return {
+      layer: layerIdx,
+      x: rand(-100, W+100),
+      y: spawnAbove ? rand(-H, 0) : rand(-H*0.2, H),
+      phase: rand(0, Math.PI*2),
+      turb: rand(0.6,1.4)
+    };
+  }
+
+  function pickLayer(){
+    var r = Math.random(), acc = 0;
+    for(var l=0;l<LAYERS.length;l++){ acc += LAYERS[l].weight; if(r<=acc) return l; }
+    return LAYERS.length-1;
+  }
+
+  // Grows/shrinks the pool in place rather than reallocating everything, so
+  // dragging the density slider (which fires continuously) doesn't reset
+  // every drop's position and cause a visible "pop" in the rain field.
+  function rebuildDrops(){
+    if(currentMode === 'heatwave'){ drops.length = 0; return; }
+    var total = Math.min(Math.round(params.density), MAX_DROPS);
+    if(drops.length > total){
+      drops.length = total;
+    } else {
+      while(drops.length < total) drops.push(makeDrop(pickLayer(), true));
+    }
+  }
+
+  // ---------------- clouds ----------------
+  var clouds = [];
+  function rebuildClouds(){
+    clouds.length = 0;
+    var n = 6;
+    for(var i=0;i<n;i++){
+      clouds.push({
+        x: rand(0, W), y: rand(-40, H*0.35),
+        rx: rand(180,420), ry: rand(60,140),
+        speed: rand(14,34) * (0.6+Math.random()*0.8),
+        alphaBase: rand(0.35,0.9)
+      });
+    }
+  }
+
+  // ---------------- tornado funnel ----------------
+  var funnel = { x: 0, wobblePhase: rand(0,10) };
+
+  // ---------------- storm surge state ----------------
+  var waterLevel = 0;
+  var MAX_SURGE = 150;
+
+  // ---------------- blizzard accumulation ----------------
+  var snowDepth = 0;
+  var MAX_SNOW = 70;
+
+  // ---------------- heatwave ground cracks (static, rebuilt per resize/mode entry) ----------------
+  var crackPaths = null;
+  function buildCracks(){
+    crackPaths = [];
+    var n = 7;
+    for(var i=0;i<n;i++){
+      var x0 = rand(0,W), y0 = groundY + rand(6,18);
+      crackPaths.push(buildBoltPath(x0,y0, x0+rand(-90,90), H, rand(30,60), 5));
+    }
+  }
+
+  // ---------------- ice storm glaze (thin reflective coating, not a rising layer) ----------------
+  var iceGlaze = 0;
+  var MAX_GLAZE = 20;
+  var glazeGlints = null;
+  function buildGlazeGlints(){
+    glazeGlints = [];
+    var n = 26;
+    for(var i=0;i<n;i++){
+      glazeGlints.push({ x: rand(0,W), y: rand(6,H-groundY), phase: rand(0,10), rate: rand(1.2,2.6) });
+    }
+  }
+
+  // ---------------- downburst pulse state (discrete outward gust-front bursts) ----------------
+  var burst = { x:0, age:0, interval: 3 };
+
+  function currentGroundLevel(){
+    if(currentMode==='blizzard') return groundY - snowDepth;
+    if(currentMode==='surge') return groundY - waterLevel;
+    return groundY;
+  }
+
+  // ---------------- lightning ----------------
+  function buildBoltPath(x0,y0,x1,y1,disp,depth){
+    if(depth<=0 || disp<6){ return [[x0,y0],[x1,y1]]; }
+    var mx = (x0+x1)/2 + rand(-disp,disp);
+    var my = (y0+y1)/2 + rand(-disp*0.25,disp*0.25);
+    var left = buildBoltPath(x0,y0,mx,my,disp*0.55,depth-1);
+    var right = buildBoltPath(mx,my,x1,y1,disp*0.55,depth-1);
+    return left.concat(right.slice(1));
+  }
+
+  var flashQueue = [];
+  var shake = 0;
+
+  function triggerLightning(){
+    var x0 = rand(W*0.15, W*0.85);
+    var endY = groundY * rand(0.55,0.92);
+    var x1 = x0 + rand(-W*0.12, W*0.12);
+    var main = buildBoltPath(x0, -10, x1, endY, W*0.16, 6);
+
+    var branches = [];
+    var nBranch = Math.round(rand(1,3));
+    for(var b=0;b<nBranch;b++){
+      var idx = Math.floor(rand(main.length*0.2, main.length*0.75));
+      var bx = main[idx][0], by = main[idx][1];
+      var bex = bx + rand(-160,160);
+      var bey = by + rand(80,220);
+      branches.push(buildBoltPath(bx,by,bex,bey, 60, 4));
+    }
+
+    var distanceKm = rand(0.25, 3.2);
+    var proximity = 1 - Math.min(1, distanceKm/3.2);
+
+    bolts.push({
+      main:main, branches:branches, age:0,
+      duration: rand(0.09,0.16), flick: rand(0.05,0.09),
+      glow: 10 + proximity*18, width: 1.4 + proximity*1.6
+    });
+
+    flashQueue.push({ fx: (x0/W*100), fy: (Math.max(0,-10)/H*100)+5, t:0, peak: 0.55+proximity*0.45 });
+    flashQueue.push({ fx: (x0/W*100), fy: (Math.max(0,-10)/H*100)+5, t: rand(0.08,0.14), peak: rand(0.35,0.6)*(0.6+proximity*0.4) });
+
+    shake = Math.min(1, shake + 0.25 + proximity*0.55);
+
+    if(params.thunder) scheduleThunder(distanceKm);
+  }
+
+  // ---------------- audio (thunder) ----------------
+  // Light reaches the eye virtually instantly; sound trails behind at ~343 m/s,
+  // so a strike's distance sets both the delay and how muffled/deep it sounds.
+  var SPEED_OF_SOUND = 343; // m/s
+  var actx = null;
+  function ensureAudio(){
+    if(!actx){
+      try{ actx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ actx = null; }
+    } else if(actx.state === 'suspended'){ actx.resume(); }
+  }
+  function scheduleThunder(distanceKm){
+    if(!actx) return;
+    var delaySec = (distanceKm*1000) / SPEED_OF_SOUND;
+    setTimeout(function(){ playThunder(distanceKm); }, delaySec*1000);
+  }
+  function playThunder(distanceKm){
+    if(!actx) return;
+    var now = actx.currentTime;
+    var proximity = 1 - Math.min(1, distanceKm/3.2);
+    var dur = 2.4 + (1-proximity)*2.8;
+
+    var bufSize = Math.floor(actx.sampleRate * dur);
+    var buf = actx.createBuffer(1, bufSize, actx.sampleRate);
+    var data = buf.getChannelData(0);
+    for(var i=0;i<bufSize;i++){ data[i] = (Math.random()*2-1); }
+    var src = actx.createBufferSource(); src.buffer = buf;
+
+    var lp = actx.createBiquadFilter(); lp.type='lowpass';
+    var startCut = 130 + proximity*420;
+    lp.frequency.setValueAtTime(startCut, now);
+    lp.frequency.exponentialRampToValueAtTime(28, now+dur);
+    lp.Q.value = 0.7;
+
+    var noiseGain = actx.createGain();
+    var peakGain = 0.55 * (0.35 + proximity*0.65);
+    noiseGain.gain.setValueAtTime(0.0001, now);
+    noiseGain.gain.exponentialRampToValueAtTime(peakGain, now + 0.04 + (1-proximity)*0.18);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+    src.connect(lp); lp.connect(noiseGain); noiseGain.connect(actx.destination);
+
+    var sub = actx.createOscillator(); sub.type = 'sine';
+    sub.frequency.setValueAtTime(72, now);
+    sub.frequency.exponentialRampToValueAtTime(34, now + dur*0.85);
+    var sub2 = actx.createOscillator(); sub2.type = 'triangle';
+    sub2.frequency.setValueAtTime(46, now);
+    sub2.frequency.exponentialRampToValueAtTime(24, now + dur*0.9);
+
+    var subGain = actx.createGain();
+    var subPeak = 0.7 * (0.45 + proximity*0.55);
+    subGain.gain.setValueAtTime(0.0001, now);
+    subGain.gain.exponentialRampToValueAtTime(subPeak, now + 0.09 + (1-proximity)*0.12);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+    sub.connect(subGain); sub2.connect(subGain); subGain.connect(actx.destination);
+
+    src.start(now); src.stop(now+dur+0.1);
+    sub.start(now); sub.stop(now+dur+0.1);
+    sub2.start(now); sub2.stop(now+dur+0.1);
+  }
+
+  // ---------------- impact effects ----------------
+  function spawnSplash(x, y, layerSpeed){
+    var n = Math.round(rand(1,4) * (0.3 + params.splashIntensity/100*1.4));
+    for(var i=0;i<n;i++){
+      splashes.push({
+        x:x, y:y,
+        vx: rand(-70,70) + params.windSpeed*0.25*(Math.random()>0.5?1:-0.3),
+        vy: rand(-140,-50) * (0.6+layerSpeed*0.4),
+        life: 1, decay: rand(1.6,2.4)
+      });
+    }
+    if(Math.random() < 0.7){
+      ripples.push({ x:x, y:y, r:2, alpha:0.5, growth: rand(70,110) });
+    }
+  }
+
+  function spawnHailImpact(x, y, layerSpeed){
+    var n = Math.round(rand(2,5) * (0.3 + params.splashIntensity/100*1.4));
+    for(var i=0;i<n;i++){
+      shards.push({
+        x:x, y:y,
+        vx: rand(-160,160),
+        vy: rand(-220,-60) * (0.6+layerSpeed*0.4),
+        life:1, decay: rand(1.4,2.2), rot: rand(0,7)
+      });
+    }
+  }
+
+  // Freezing rain doesn't splash — it freezes on contact, so the only visible
+  // cue is a single quick glint instead of a burst of droplets.
+  function spawnGlazeFreeze(x, y){
+    if(Math.random() < 0.4){
+      ripples.push({ x:x, y:y, r:1, alpha:0.6, growth: rand(18,30) });
+    }
+    iceGlaze = Math.min(MAX_GLAZE, iceGlaze + 0.01 * (0.3 + params.splashIntensity/100*1.4));
+  }
+
+  // ---------------- weather gust noise ----------------
+  function windGust(time){
+    return Math.sin(time*0.5) * 0.5 + Math.sin(time*1.31+2.1) * 0.3 + Math.sin(time*0.27+5.2) * 0.2;
+  }
+
+  // ---------------- update ----------------
+  var t = 0;
+  var paused = false;
+
+  function update(dt){
+    t += dt;
+
+    var profile = MODE_PROFILE[currentMode];
+    var gust = windGust(t) * (params.gustiness/100);
+    var baseWind = params.windSpeed * 0.6 * profile.windMul;
+
+    var fallScale = params.fallSpeed/100;
+    var sizeScale = params.dropSize/100;
+    var gY = currentGroundLevel();
+
+    var isTornado = currentMode==='tornado' && params.funnelStrength>0;
+    if(isTornado){
+      funnel.wobblePhase += dt * (0.15 + params.funnelWobble/100*0.9);
+      var targetX = W*0.5 + Math.sin(funnel.wobblePhase)*W*0.32 + Math.sin(funnel.wobblePhase*0.37)*W*0.12;
+      funnel.x += (targetX - funnel.x) * Math.min(1, dt*1.2);
+    }
+
+    var isDownburst = currentMode==='downburst' && params.burstStrength>0;
+    if(isDownburst){
+      burst.interval = 5.5 - (params.burstFrequency/100)*4;
+      burst.age += dt;
+      if(burst.age > burst.interval){
+        burst.age = 0;
+        burst.x = rand(W*0.2, W*0.8);
+      }
+    }
+
+    // gustier settings shake the rain faster, not just wider — real turbulence
+    // gets more chaotic, not just bigger, as wind speed climbs
+    var turbFreq = 1.4 + (params.gustiness/100)*1.8;
+
+    for(var i=0;i<drops.length;i++){
+      var d = drops[i];
+      var layer = LAYERS[d.layer];
+      var swaySize = profile.shape==='flake' ? 3 : 1;
+      // surface friction slows wind near the ground relative to aloft (boundary layer)
+      var heightShear = 0.75 + 0.25*(1 - Math.min(1, Math.max(0, d.y/groundY)));
+      var wind = (baseWind + gust*baseWind*1.1) * layer.windMul * heightShear + Math.sin(t*turbFreq+d.phase)*8*d.turb*swaySize;
+      var vy = profile.gravity * layer.speedMul * fallScale + Math.abs(wind)*0.05;
+
+      if(isTornado){
+        var dx = funnel.x - d.x;
+        var dist = Math.abs(dx);
+        var influence = 260 * (0.4+params.funnelStrength/100);
+        if(dist < influence){
+          var pull = (1 - dist/influence) * (params.funnelStrength/100);
+          wind += Math.sign(dx||1) * pull * 260;
+          if(dist < 46){
+            vy -= pull*520;
+            wind += Math.sin(t*46 + d.phase*9) * pull * 340;
+          }
+        }
+        // debris sucked above cloud base gets flung outward instead of vanishing upward
+        if(d.y < H*0.22){
+          wind += Math.sign((d.x-funnel.x)||1) * 220;
+          vy = Math.max(vy, 40);
+        }
+      }
+
+      if(isDownburst){
+        var bdx = d.x - burst.x;
+        var bdist = Math.abs(bdx);
+        var ringR = burst.age * (280 + params.burstStrength*4);
+        var ringWidth = 90 + params.burstStrength*1.2;
+        var ringProximity = 1 - Math.min(1, Math.abs(bdist-ringR)/ringWidth);
+        if(ringProximity>0 && d.y > groundY*0.45){
+          var ageFade = Math.max(0, 1 - burst.age/2.2);
+          wind += Math.sign(bdx||1) * ringProximity * ageFade * (params.burstStrength/100) * 420;
+        }
+      }
+
+      d.x += wind*dt;
+      d.y += vy*dt;
+
+      if(d.y > gY + rand(0,4)){
+        if(profile.ground==='ice'){
+          if(d.x>-20 && d.x<W+20) spawnHailImpact(d.x, gY, layer.speedMul);
+        } else if(profile.ground==='glaze'){
+          if(d.x>-20 && d.x<W+20) spawnGlazeFreeze(d.x, gY);
+        } else if(profile.ground==='wet' || profile.ground==='water'){
+          if(d.x>-20 && d.x<W+20) spawnSplash(d.x, gY, layer.speedMul);
+        } else if(profile.ground==='snow'){
+          snowDepth = Math.min(MAX_SNOW, snowDepth + 0.012 * fallScale);
+        }
+        d.y = rand(-60,-4);
+        d.x = rand(-100, W+100);
+      }
+      if(d.x < -140) d.x = W+120;
+      if(d.x > W+140) d.x = -120;
+
+      d._wind = wind; d._vy = vy; d._sizeScale = sizeScale;
+    }
+
+    for(var s=splashes.length-1;s>=0;s--){
+      var sp = splashes[s];
+      sp.vy += 480*dt;
+      sp.x += sp.vx*dt; sp.y += sp.vy*dt;
+      sp.life -= sp.decay*dt;
+      if(sp.life<=0 || sp.y>gY+40){ splashes.splice(s,1); }
+    }
+    for(var sh=shards.length-1;sh>=0;sh--){
+      var sk = shards[sh];
+      sk.vy += 560*dt;
+      sk.x += sk.vx*dt; sk.y += sk.vy*dt;
+      sk.life -= sk.decay*dt;
+      if(sk.life<=0 || sk.y>gY+40){ shards.splice(sh,1); }
+    }
+    for(var r=ripples.length-1;r>=0;r--){
+      var rp = ripples[r];
+      rp.r += rp.growth*dt;
+      rp.alpha -= dt*1.3;
+      if(rp.alpha<=0) ripples.splice(r,1);
+    }
+
+    if(currentMode==='surge'){
+      var target = (params.surgeRate/100) * MAX_SURGE;
+      waterLevel += (target - waterLevel) * Math.min(1, dt*0.6);
+      if(Math.random() < dt*0.8 && debrisFloats.length<10){
+        debrisFloats.push({ x: rand(0,W), w: rand(14,30), phase: rand(0,10) });
+      }
+      for(var df=debrisFloats.length-1;df>=0;df--){
+        debrisFloats[df].x += (baseWind*0.5)*dt;
+        if(debrisFloats[df].x > W+40) debrisFloats.splice(df,1);
+      }
+    } else if(debrisFloats.length){ debrisFloats.length = 0; }
+
+    if(currentMode!=='blizzard' && snowDepth>0){ snowDepth = Math.max(0, snowDepth - dt*4); }
+    if(currentMode!=='surge' && waterLevel>0){ waterLevel = Math.max(0, waterLevel - dt*30); }
+    if(currentMode!=='icestorm' && iceGlaze>0){ iceGlaze = Math.max(0, iceGlaze - dt*1.5); }
+
+    for(var c=0;c<clouds.length;c++){
+      var cl = clouds[c];
+      cl.x += (cl.speed + baseWind*0.12) * dt;
+      if(cl.x - cl.rx > W) cl.x = -cl.rx;
+    }
+
+    var freqPerSec = params.lightningFreq/60;
+    if(Math.random() < freqPerSec*dt){ triggerLightning(); }
+
+    for(var bo=bolts.length-1;bo>=0;bo--){
+      bolts[bo].age += dt;
+      if(bolts[bo].age > bolts[bo].duration + bolts[bo].flick){ bolts.splice(bo,1); }
+    }
+    for(var fq=flashQueue.length-1;fq>=0;fq--){
+      flashQueue[fq].t -= dt;
+    }
+
+    shake *= Math.max(0, 1 - dt*7);
+  }
+
+  // ---------------- render ----------------
+  // The sky gradient only actually changes on a mode switch or resize, so it's
+  // cached instead of rebuilt with createLinearGradient() on every frame.
+  var skyGradCache = { key:null, grad:null };
+  function drawSky(){
+    var profile = MODE_PROFILE[currentMode];
+    var key = currentMode+':'+H;
+    if(skyGradCache.key !== key){
+      var g = ctx.createLinearGradient(0,0,0,H);
+      g.addColorStop(0, profile.sky[0]);
+      g.addColorStop(0.55, profile.sky[1]);
+      g.addColorStop(1, profile.sky[2]);
+      skyGradCache.key = key;
+      skyGradCache.grad = g;
+    }
+    ctx.fillStyle = skyGradCache.grad;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  function drawClouds(){
+    var dens = params.cloudDensity/100;
+    if(dens<=0) return;
+    var c = MODE_PROFILE[currentMode].cloud;
+    ctx.save();
+    for(var i=0;i<clouds.length;i++){
+      var cl = clouds[i];
+      var g = ctx.createRadialGradient(cl.x,cl.y,0, cl.x,cl.y, cl.rx);
+      var a = cl.alphaBase*dens*0.28;
+      g.addColorStop(0, 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')');
+      g.addColorStop(1, 'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(cl.x, cl.y, cl.rx, cl.ry, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawGround(){
+    var profile = MODE_PROFILE[currentMode];
+    var gY = currentGroundLevel();
+
+    if(profile.ground==='snow'){
+      var g = ctx.createLinearGradient(0, gY, 0, H);
+      g.addColorStop(0, 'rgba(232,238,248,0.95)');
+      g.addColorStop(1, 'rgba(198,208,224,0.98)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, gY, W, H-gY);
+      ctx.strokeStyle = 'rgba(150,170,200,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, gY+0.5); ctx.lineTo(W, gY+0.5); ctx.stroke();
+      return;
+    }
+
+    if(profile.ground==='water'){
+      var g2 = ctx.createLinearGradient(0, gY, 0, H);
+      g2.addColorStop(0, 'rgba(18,34,44,0.92)');
+      g2.addColorStop(1, 'rgba(4,10,14,0.98)');
+      ctx.fillStyle = g2;
+      ctx.fillRect(0, gY, W, H-gY);
+
+      var amp = (params.waveHeight/100) * 12 + 2;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(170,210,225,0.55)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      for(var x=0;x<=W;x+=8){
+        var y = gY + Math.sin(x*0.03 + t*1.6)*amp*0.5 + Math.sin(x*0.011 - t*0.9)*amp*0.5;
+        if(x===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      for(var df=0; df<debrisFloats.length; df++){
+        var d = debrisFloats[df];
+        var wy = gY + Math.sin(t*1.6 + d.phase)*amp*0.4;
+        ctx.save();
+        ctx.globalAlpha = 0.6;
+        ctx.fillStyle = 'rgba(30,24,18,0.9)';
+        ctx.fillRect(d.x, wy, d.w, 3);
+        ctx.restore();
+      }
+      return;
+    }
+
+    if(profile.ground==='glaze'){
+      var g6 = ctx.createLinearGradient(0, gY, 0, H);
+      g6.addColorStop(0, 'rgba(16,26,38,0.9)');
+      g6.addColorStop(1, 'rgba(4,9,14,0.98)');
+      ctx.fillStyle = g6;
+      ctx.fillRect(0, gY, W, H-gY);
+
+      var glazeFrac = iceGlaze/MAX_GLAZE;
+      if(glazeFrac>0){
+        ctx.save();
+        ctx.globalAlpha = 0.12 + glazeFrac*0.28;
+        var sx6 = (Math.sin(t*0.2)*0.5+0.5) * W;
+        var sg6 = ctx.createRadialGradient(sx6, gY, 0, sx6, gY, W*0.6);
+        sg6.addColorStop(0,'rgba(200,225,250,0.8)');
+        sg6.addColorStop(1,'rgba(200,225,250,0)');
+        ctx.fillStyle = sg6;
+        ctx.fillRect(0, gY, W, H-gY);
+        ctx.restore();
+
+        if(!glazeGlints) buildGlazeGlints();
+        ctx.save();
+        for(var gg=0;gg<glazeGlints.length;gg++){
+          var glint = glazeGlints[gg];
+          var tw = 0.35 + 0.65*Math.max(0, Math.sin(t*glint.rate + glint.phase));
+          ctx.globalAlpha = glazeFrac * tw * 0.9;
+          ctx.fillStyle = 'rgba(220,238,255,1)';
+          ctx.fillRect(glint.x, gY+glint.y, 1.4, 1.4);
+        }
+        ctx.restore();
+      }
+
+      ctx.strokeStyle = 'rgba(180,205,230,0.22)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, gY+0.5); ctx.lineTo(W, gY+0.5); ctx.stroke();
+      return;
+    }
+
+    if(profile.ground==='dust'){
+      var g3 = ctx.createLinearGradient(0, gY, 0, H);
+      g3.addColorStop(0, 'rgba(90,58,30,0.85)');
+      g3.addColorStop(1, 'rgba(46,28,14,0.96)');
+      ctx.fillStyle = g3;
+      ctx.fillRect(0, gY, W, H-gY);
+      ctx.strokeStyle = 'rgba(180,130,80,0.25)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, gY+0.5); ctx.lineTo(W, gY+0.5); ctx.stroke();
+      return;
+    }
+
+    if(profile.ground==='dry'){
+      var g4 = ctx.createLinearGradient(0, gY, 0, H);
+      g4.addColorStop(0, 'rgba(150,116,70,0.92)');
+      g4.addColorStop(1, 'rgba(90,66,38,0.98)');
+      ctx.fillStyle = g4;
+      ctx.fillRect(0, gY, W, H-gY);
+
+      if(!crackPaths) buildCracks();
+      ctx.save();
+      ctx.strokeStyle = 'rgba(60,40,20,0.55)';
+      ctx.lineWidth = 1.2;
+      for(var cp=0;cp<crackPaths.length;cp++) strokePath(crackPaths[cp]);
+      ctx.restore();
+
+      var hz = params.hazeIntensity/100;
+      if(hz>0){
+        ctx.save();
+        ctx.filter = 'blur(2px)';
+        for(var b=0;b<5;b++){
+          var by = gY - 6 - b*16;
+          var bx = Math.sin(t*1.4 + b*1.7)*14*hz;
+          ctx.globalAlpha = 0.05*hz;
+          ctx.fillStyle = 'rgba(255,244,220,1)';
+          ctx.fillRect(-40+bx, by, W+80, 10);
+        }
+        ctx.restore();
+      }
+      return;
+    }
+
+    // wet (typhoon / hail / tornado)
+    var g5 = ctx.createLinearGradient(0, gY, 0, H);
+    g5.addColorStop(0, 'rgba(20,28,42,0.9)');
+    g5.addColorStop(1, 'rgba(5,8,13,0.98)');
+    ctx.fillStyle = g5;
+    ctx.fillRect(0, gY, W, H-gY);
+
+    var sx = (Math.sin(t*0.3)*0.5+0.5) * W;
+    ctx.save();
+    ctx.globalAlpha = 0.10;
+    var sg = ctx.createRadialGradient(sx, gY, 0, sx, gY, W*0.5);
+    sg.addColorStop(0,'rgba(160,190,230,0.5)');
+    sg.addColorStop(1,'rgba(160,190,230,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, gY, W, H-gY);
+    ctx.restore();
+
+    ctx.strokeStyle = 'rgba(150,175,215,0.18)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, gY+0.5); ctx.lineTo(W, gY+0.5); ctx.stroke();
+  }
+
+  // Particles are batched into one Path2D per parallax layer (and drawn with a
+  // single stroke()/fill() call) instead of issuing an individual canvas draw
+  // call per particle — thousands of calls per frame down to single digits.
+  // dropSize is a global slider (not per-drop), so line width is genuinely
+  // constant within a layer; batching only trades away the ±15% per-drop
+  // alpha shimmer, which is imperceptible at rain-streak scale.
+  function drawParticles(){
+    var profile = MODE_PROFILE[currentMode];
+    if(profile.shape==='none') return;
+    var colors = profile.colors;
+    var sizeScale = params.dropSize/100;
+
+    if(profile.shape==='line'){
+      var strokeLen = 0.028;
+      for(var l=0;l<LAYERS.length;l++){
+        var layer = LAYERS[l];
+        var c = colors[l];
+        var path = new Path2D();
+        var any = false;
+        for(var i=0;i<drops.length;i++){
+          var d = drops[i];
+          if(d.layer!==l) continue;
+          any = true;
+          path.moveTo(d.x, d.y);
+          path.lineTo(d.x - (d._wind||0)*strokeLen, d.y - (d._vy||0)*strokeLen);
+        }
+        if(!any) continue;
+        ctx.strokeStyle = 'rgba('+c[0]+','+c[1]+','+c[2]+','+LAYER_OPACITY[l]+')';
+        ctx.lineWidth = Math.max(0.6, layer.sizeMul * sizeScale * 1.4);
+        ctx.stroke(path);
+      }
+    } else if(profile.shape==='blob'){
+      var isHail = currentMode==='hail';
+      for(var l2=0;l2<LAYERS.length;l2++){
+        var layer2 = LAYERS[l2];
+        var c2 = colors[l2];
+        var r = Math.max(1, layer2.sizeMul * sizeScale * (isHail?3.2:2.0));
+        var trailPath = new Path2D(), bodyPath = new Path2D(), hiPath = new Path2D();
+        var any2 = false;
+        for(var j=0;j<drops.length;j++){
+          var dd = drops[j];
+          if(dd.layer!==l2) continue;
+          any2 = true;
+          trailPath.moveTo(dd.x - (dd._wind||0)*0.02, dd.y - (dd._vy||0)*0.02);
+          trailPath.lineTo(dd.x, dd.y);
+          bodyPath.moveTo(dd.x+r, dd.y);
+          bodyPath.arc(dd.x, dd.y, r, 0, Math.PI*2);
+          hiPath.moveTo(dd.x-r*0.3+r*0.35, dd.y-r*0.3);
+          hiPath.arc(dd.x-r*0.3, dd.y-r*0.3, r*0.35, 0, Math.PI*2);
+        }
+        if(!any2) continue;
+        ctx.strokeStyle = 'rgba('+c2[0]+','+c2[1]+','+c2[2]+','+(LAYER_OPACITY[l2]*0.5)+')';
+        ctx.lineWidth = r*0.6;
+        ctx.stroke(trailPath);
+        ctx.fillStyle = 'rgba('+c2[0]+','+c2[1]+','+c2[2]+','+LAYER_OPACITY[l2]+')';
+        ctx.fill(bodyPath);
+        ctx.fillStyle = 'rgba(255,255,255,'+(LAYER_OPACITY[l2]*0.5)+')';
+        ctx.fill(hiPath);
+      }
+    } else if(profile.shape==='flake'){
+      for(var l3=0;l3<LAYERS.length;l3++){
+        var layer3 = LAYERS[l3];
+        var c3 = colors[l3];
+        var fr = Math.max(0.8, layer3.sizeMul * sizeScale * 2.1);
+        var flakePath = new Path2D();
+        var any3 = false;
+        for(var k=0;k<drops.length;k++){
+          var dk = drops[k];
+          if(dk.layer!==l3) continue;
+          any3 = true;
+          flakePath.moveTo(dk.x+fr, dk.y);
+          flakePath.arc(dk.x, dk.y, fr, 0, Math.PI*2);
+        }
+        if(!any3) continue;
+        ctx.fillStyle = 'rgba('+c3[0]+','+c3[1]+','+c3[2]+','+LAYER_OPACITY[l3]+')';
+        ctx.fill(flakePath);
+      }
+    }
+  }
+
+  function drawImpacts(){
+    for(var i=0;i<ripples.length;i++){
+      var rp = ripples[i];
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, rp.alpha);
+      ctx.strokeStyle = 'rgba(190,210,240,1)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(rp.x, rp.y, rp.r, rp.r*0.28, 0, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    for(var s=0;s<splashes.length;s++){
+      var sp = splashes[s];
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, sp.life);
+      ctx.fillStyle = 'rgba(200,220,250,1)';
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, 1.4, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+    for(var k=0;k<shards.length;k++){
+      var sk = shards[k];
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, sk.life);
+      ctx.translate(sk.x, sk.y);
+      ctx.rotate(sk.rot + sk.life*2);
+      ctx.fillStyle = 'rgba(225,230,238,1)';
+      ctx.fillRect(-1.6,-1.6,3.2,3.2);
+      ctx.restore();
+    }
+  }
+
+  function strokePath(pts){
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for(var i=1;i<pts.length;i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.stroke();
+  }
+
+  function drawBolts(){
+    for(var i=0;i<bolts.length;i++){
+      var b = bolts[i];
+      var visible = b.age < b.duration || (b.age > b.duration+b.flick*0.4);
+      if(!visible) continue;
+      var fade = 1 - Math.min(1, Math.max(0,(b.age - b.duration))/Math.max(0.001,b.flick));
+      ctx.save();
+      ctx.globalAlpha = Math.max(0,Math.min(1,fade));
+      ctx.shadowColor = 'rgba(200,215,255,0.9)';
+      ctx.shadowBlur = b.glow||18;
+      ctx.strokeStyle = 'rgba(235,240,255,0.95)';
+      ctx.lineWidth = b.width||2.2;
+      strokePath(b.main);
+      ctx.lineWidth = 1;
+      ctx.globalAlpha *= 0.6;
+      for(var j=0;j<b.branches.length;j++) strokePath(b.branches[j]);
+      ctx.restore();
+    }
+  }
+
+  function drawFunnel(){
+    if(currentMode!=='tornado' || params.funnelStrength<=0) return;
+    var strength = params.funnelStrength/100;
+    var topY = H*0.24, botY = groundY - 4;
+    var topR = 70 + strength*40;
+    var botR = 10 + strength*22;
+
+    ctx.save();
+    ctx.globalAlpha = 0.55 + strength*0.3;
+    var steps = 22;
+    for(var i=0;i<steps;i++){
+      var f = i/(steps-1);
+      var y = topY + (botY-topY)*f;
+      var r = topR + (botR-topR)*f;
+      var wob = Math.sin(t*5 + f*9) * (6+strength*10) * (1-f*0.4);
+      var cx = funnel.x + wob;
+      var shade = 20 + f*10;
+      ctx.strokeStyle = 'rgba('+shade+','+(shade+4)+','+(shade+2)+','+(0.5*(1-f*0.5))+')';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(cx, y, r, r*0.32, Math.sin(t*3+f*6)*0.15, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // orbiting debris near the base
+    ctx.save();
+    var nOrbit = Math.round(6 + strength*10);
+    for(var o=0;o<nOrbit;o++){
+      var ang = t*6 + o*(Math.PI*2/nOrbit);
+      var rad = botR*1.4 + Math.sin(t*2+o)*8;
+      var ox = funnel.x + Math.cos(ang)*rad;
+      var oy = botY - 6 + Math.sin(ang)*rad*0.28;
+      ctx.fillStyle = 'rgba(120,110,90,0.75)';
+      ctx.fillRect(ox-1.4, oy-1.4, 2.8, 2.8);
+    }
+    ctx.restore();
+  }
+
+  function drawBurst(){
+    if(currentMode!=='downburst' || params.burstStrength<=0) return;
+    var strength = params.burstStrength/100;
+    var ringR = burst.age * (280 + strength*400);
+    var ageFade = Math.max(0, 1 - burst.age/2.2);
+    if(ageFade<=0) return;
+
+    // expanding gust-front ring at ground level
+    ctx.save();
+    ctx.globalAlpha = ageFade * (0.35 + strength*0.35);
+    ctx.strokeStyle = 'rgba(210,222,240,0.9)';
+    ctx.lineWidth = 2 + strength*2;
+    ctx.beginPath();
+    ctx.ellipse(burst.x, groundY-4, Math.max(1,ringR), Math.max(1,ringR)*0.1, 0, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+
+    // brief vertical downdraft flash right as the pulse begins
+    if(burst.age < 0.18){
+      var flashFade = 1 - burst.age/0.18;
+      ctx.save();
+      ctx.globalAlpha = flashFade * 0.5 * (0.5+strength*0.5);
+      var bg = ctx.createLinearGradient(burst.x, H*0.15, burst.x, groundY);
+      bg.addColorStop(0, 'rgba(210,225,245,0)');
+      bg.addColorStop(0.7, 'rgba(210,225,245,0.55)');
+      bg.addColorStop(1, 'rgba(230,238,250,0.85)');
+      ctx.fillStyle = bg;
+      ctx.fillRect(burst.x-38-strength*20, H*0.15, 76+strength*40, groundY-H*0.15);
+      ctx.restore();
+    }
+  }
+
+  // Tints the atmosphere toward night or overcast daylight based on a real
+  // sun-altitude estimate for the user's coordinates + local clock time.
+  function drawDaylightOverlay(){
+    if(!daylight.enabled) return;
+    var f = daylight.factor;
+    ctx.save();
+    if(f < 0.5){
+      var nightAlpha = (0.5-f)*2*0.55;
+      ctx.fillStyle = 'rgba(0,4,10,'+nightAlpha+')';
+      ctx.fillRect(0,0,W,H);
+    } else if(currentMode!=='heatwave'){
+      var dayAlpha = (f-0.5)*2*0.18;
+      ctx.globalCompositeOperation = 'lighten';
+      ctx.fillStyle = 'rgba(150,160,175,'+dayAlpha+')';
+      ctx.fillRect(0,0,W,H);
+    }
+    ctx.restore();
+  }
+
+  function drawHeatOverlay(){
+    if(currentMode!=='heatwave') return;
+    var glare = params.glare/100;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    var g = ctx.createRadialGradient(W*0.5,H*0.06,0, W*0.5,H*0.06, W*0.62);
+    g.addColorStop(0, 'rgba(255,250,225,'+(0.5*glare)+')');
+    g.addColorStop(1, 'rgba(255,250,225,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+
+  var flashEl = document.getElementById('flash');
+  function drawFlash(){
+    var total = 0, fx=50, fy=20;
+    for(var i=0;i<flashQueue.length;i++){
+      var f = flashQueue[i];
+      if(f.t<=0.22 && f.t>-0.4){
+        var local;
+        if(f.t>0){ local = 0; }
+        else { local = Math.max(0, 1 - (-f.t)/0.22); }
+        var val = f.peak * local;
+        if(val>total){ total = val; fx=f.fx; fy=f.fy; }
+      }
+    }
+    flashQueue = flashQueue.filter(function(f){ return f.t > -0.5; });
+    flashEl.style.setProperty('--fx', fx+'%');
+    flashEl.style.setProperty('--fy', fy+'%');
+    flashEl.style.opacity = total;
+  }
+
+  function frame(now){
+    if(!frame.last) frame.last = now;
+    var dt = Math.min(0.05, (now-frame.last)/1000);
+    frame.last = now;
+
+    if(!paused) update(dt);
+
+    ctx.save();
+    if(shake>0.01){
+      var mag = shake*6;
+      ctx.translate((Math.random()*2-1)*mag, (Math.random()*2-1)*mag);
+    }
+    drawSky();
+    drawClouds();
+    drawDaylightOverlay();
+    var profile = MODE_PROFILE[currentMode];
+    var fog = params.fogOpacity/100;
+    if(fog>0){
+      var fc = profile.fog;
+      ctx.fillStyle = 'rgba('+fc[0]+','+fc[1]+','+fc[2]+','+(fog*0.5)+')';
+      ctx.fillRect(0,0,W,H);
+    }
+    drawGround();
+    drawFunnel();
+    drawBurst();
+    drawParticles();
+    drawImpacts();
+    drawBolts();
+    drawHeatOverlay();
+    ctx.restore();
+
+    drawFlash();
+
+    // badge shows quantities that evolve on their own (snow depth, ice glaze,
+    // burst timing), not just slider values, so refresh it on a light timer
+    // rather than only when a control changes
+    badgeRefreshT += dt;
+    if(!paused && badgeRefreshT > 0.25){
+      badgeRefreshT = 0;
+      updateBadge();
+    }
+
+    requestAnimationFrame(frame);
+  }
+  var badgeRefreshT = 0;
+
+  // ---------------- badge ----------------
+  var badgeCat = document.getElementById('badgeCat');
+  var badgeSub = document.getElementById('badgeSub');
+  var badgeEl = document.getElementById('badge');
+  function classify(){
+    switch(currentMode){
+      case 'typhoon': case 'surge': {
+        var w = params.windSpeed;
+        if(w<30) return ['熱帶性低氣壓','var(--ok)'];
+        if(w<90) return ['輕度颱風','var(--cyan)'];
+        if(w<150) return ['中度颱風','var(--amber)'];
+        return ['強烈颱風','var(--danger)'];
+      }
+      case 'hail': {
+        var s = params.dropSize;
+        if(s<90) return ['小冰雹','var(--ok)'];
+        if(s<150) return ['中型冰雹','var(--amber)'];
+        return ['巨型冰雹（致災）','var(--danger)'];
+      }
+      case 'tornado': {
+        var f = params.funnelStrength;
+        if(f<35) return ['弱龍捲風 EF0–1','var(--ok)'];
+        if(f<70) return ['中度龍捲風 EF2–3','var(--amber)'];
+        return ['強烈龍捲風 EF4–5','var(--danger)'];
+      }
+      case 'blizzard': {
+        var d = params.density;
+        if(d<1000) return ['大雪特報','var(--ok)'];
+        if(d<2000) return ['暴風雪特報','var(--amber)'];
+        return ['嚴重暴風雪','var(--danger)'];
+      }
+      case 'dust': {
+        var fo = params.fogOpacity;
+        if(fo<40) return ['輕度揚塵','var(--ok)'];
+        if(fo<70) return ['沙塵暴','var(--amber)'];
+        return ['黑風暴（能見度趨近零）','var(--danger)'];
+      }
+      case 'heatwave': {
+        var g = params.glare;
+        if(g<50) return ['高溫燠熱','var(--ok)'];
+        if(g<80) return ['危險高溫','var(--amber)'];
+        return ['致命熱浪','var(--danger)'];
+      }
+      case 'downburst': {
+        var bs = params.burstStrength;
+        if(bs<35) return ['弱陣風下衝','var(--ok)'];
+        if(bs<70) return ['劇烈下擊暴流','var(--amber)'];
+        return ['毀滅性下擊暴流','var(--danger)'];
+      }
+      case 'icestorm': {
+        var ig = iceGlaze/MAX_GLAZE*100;
+        if(ig<35) return ['輕微凍雨','var(--ok)'];
+        if(ig<70) return ['道路結冰警戒','var(--amber)'];
+        return ['嚴重冰暴（電力設施風險）','var(--danger)'];
+      }
+    }
+    return ['—','var(--ok)'];
+  }
+  function badgeSubtext(){
+    switch(currentMode){
+      case 'typhoon': case 'surge':
+        return '風速 '+params.windSpeed+' km/h ・ 陣風 +'+Math.round(params.gustiness*0.6)+'%';
+      case 'hail':
+        return '推估直徑 '+Math.round(params.dropSize*0.35)+' mm ・ 密度 '+params.density;
+      case 'tornado':
+        return '推估風速 '+Math.round(150+params.funnelStrength*3)+' km/h ・ 路徑擺動 '+params.funnelWobble+'%';
+      case 'blizzard':
+        return '模擬積雪 '+snowDepth.toFixed(1)+' cm ・ 風寒感增強';
+      case 'dust':
+        return '能見度 <'+Math.max(50,Math.round(1000*(1-params.fogOpacity/100)))+' m';
+      case 'heatwave':
+        return '日照指數 '+params.glare+'% ・ 熱浪扭曲 '+params.hazeIntensity+'%';
+      case 'downburst':
+        return '推估瞬間陣風 '+Math.round(90+params.burstStrength*3.4)+' km/h ・ 脈動週期 '+burst.interval.toFixed(1)+'s';
+      case 'icestorm':
+        return '模擬冰層厚度 '+iceGlaze.toFixed(1)+' mm ・ 路面結冰風險';
+    }
+    return '';
+  }
+  function updateBadge(){
+    var res = classify();
+    badgeCat.textContent = res[0];
+    badgeEl.style.setProperty('--sig-color', res[1]);
+    badgeSub.textContent = badgeSubtext();
+  }
+
+  // ---------------- location + time scenario inference ----------------
+  // No live weather API is reachable from this sandbox (outbound network
+  // requests are blocked), so "current conditions" here means: take the
+  // user's real coordinates + real local clock time, derive a latitude-based
+  // climate zone, a hemisphere-correct season, and a real sun-altitude angle
+  // — then suggest whichever mode is climatologically plausible right now.
+  // This is a coarse estimate, not an observation, and is labelled as such.
+  var daylight = { enabled:false, factor:0.5 };
+  var scenario = { lat:null, lng:null, mode:null, severity:null };
+
+  function computeSunAltitude(lat, date){
+    var start = new Date(date.getFullYear(),0,0);
+    var dayOfYear = Math.floor((date-start)/86400000);
+    var decl = 23.45 * Math.sin(2*Math.PI/365 * (284+dayOfYear));
+    var hourDecimal = date.getHours() + date.getMinutes()/60;
+    var hourAngle = 15*(hourDecimal-12);
+    var latR = lat*Math.PI/180, declR = decl*Math.PI/180, haR = hourAngle*Math.PI/180;
+    var sinAlt = Math.sin(latR)*Math.sin(declR) + Math.cos(latR)*Math.cos(declR)*Math.cos(haR);
+    return Math.asin(Math.max(-1,Math.min(1,sinAlt))) * 180/Math.PI;
+  }
+
+  function seasonFor(lat, date){
+    var month = date.getMonth();
+    var nSeason = (month===11||month<=1) ? 'winter' : (month<=4 ? 'spring' : (month<=7 ? 'summer' : 'autumn'));
+    if(lat>=0) return nSeason;
+    var flip = { winter:'summer', summer:'winter', spring:'autumn', autumn:'spring' };
+    return flip[nSeason];
+  }
+
+  function climateZoneFor(lat){
+    var a = Math.abs(lat);
+    if(a<23.5) return 'tropical';
+    if(a<35) return 'subtropical';
+    if(a<55) return 'temperate';
+    return 'polar';
+  }
+
+  var ZONE_LABEL = { tropical:'熱帶', subtropical:'副熱帶', temperate:'溫帶', polar:'高緯/極地' };
+  var SEASON_LABEL = { spring:'春季', summer:'夏季', autumn:'秋季', winter:'冬季' };
+  var SEVERITY_LABEL = { light:'輕度', mid:'中度', severe:'強烈' };
+
+  // zone × season -> [mode, severity]. A deliberately simple heuristic, not
+  // real climatology: tropical/subtropical summer-autumn leans typhoon
+  // (cyclone season), temperate spring leans hail (classic severe-convection
+  // season), temperate winter leans ice storm, polar leans blizzard year
+  // round with severity tracking the season.
+  var SCENARIO_TABLE = {
+    tropical:    { summer:['typhoon','severe'], autumn:['typhoon','mid'],   winter:['downburst','light'], spring:['downburst','mid'] },
+    subtropical: { summer:['typhoon','mid'],    autumn:['typhoon','light'], winter:['dust','light'],      spring:['downburst','light'] },
+    temperate:   { summer:['downburst','mid'],  autumn:['downburst','light'],winter:['icestorm','mid'],   spring:['hail','light'] },
+    polar:       { summer:['blizzard','light'], autumn:['blizzard','mid'],  winter:['blizzard','severe'], spring:['icestorm','mid'] }
+  };
+
+  function refreshScenarioDisplay(){
+    if(scenario.lat==null) return;
+    var now = new Date();
+    var alt = computeSunAltitude(scenario.lat, now);
+    var zone = climateZoneFor(scenario.lat);
+    var season = seasonFor(scenario.lat, now);
+    var pick = SCENARIO_TABLE[zone][season];
+    scenario.mode = pick[0]; scenario.severity = pick[1];
+
+    document.getElementById('scLatLng').textContent =
+      Math.abs(scenario.lat).toFixed(2)+'°'+(scenario.lat>=0?'N':'S')+', '+
+      Math.abs(scenario.lng).toFixed(2)+'°'+(scenario.lng>=0?'E':'W');
+    document.getElementById('scTime').textContent = now.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+    document.getElementById('scZone').textContent = ZONE_LABEL[zone]+' · '+SEASON_LABEL[season];
+    document.getElementById('scSun').textContent = alt.toFixed(0)+'° '+(alt>6?'（白天）':(alt>-6?'（晨昏）':'（夜間）'));
+    document.getElementById('scResult').textContent = '→ 推算情境：'+MODE_META[scenario.mode].label+'（'+SEVERITY_LABEL[scenario.severity]+'）';
+
+    daylight.factor = Math.max(0, Math.min(1, (alt+6)/26));
+  }
+
+  function requestLocation(){
+    var label = document.getElementById('locateLabel');
+    if(!navigator.geolocation){ label.textContent = '此瀏覽器不支援定位'; return; }
+    label.textContent = '定位中…';
+    navigator.geolocation.getCurrentPosition(function(pos){
+      scenario.lat = pos.coords.latitude;
+      scenario.lng = pos.coords.longitude;
+      document.getElementById('scenarioCard').hidden = false;
+      label.textContent = '重新定位';
+      refreshScenarioDisplay();
+    }, function(err){
+      label.textContent = err.code===1 ? '已拒絕定位授權，可重試' : '定位失敗，可重試';
+    }, { timeout:10000, maximumAge:300000 });
+  }
+
+  setInterval(function(){ if(scenario.lat!=null) refreshScenarioDisplay(); }, 60000);
+
+  // ---------------- UI wiring ----------------
+  var sliderIds = ['windSpeed','gustiness','density','dropSize','fallSpeed','splashIntensity',
+    'cloudDensity','fogOpacity','lightningFreq','funnelStrength','funnelWobble','surgeRate','waveHeight',
+    'hazeIntensity','glare','burstStrength','burstFrequency'];
+
+  function syncSliderFill(el){
+    var min = +el.min, max = +el.max, val = +el.value;
+    var pct = ((val-min)/(max-min))*100;
+    el.style.setProperty('--fill', pct+'%');
+  }
+
+  function applyParamsToUI(){
+    sliderIds.forEach(function(id){
+      var el = document.getElementById(id);
+      el.value = params[id];
+      syncSliderFill(el);
+      var vEl = document.getElementById('v_'+id);
+      if(vEl && vEl.firstChild) vEl.firstChild.nodeValue = params[id];
+    });
+    updateBadge();
+  }
+
+  sliderIds.forEach(function(id){
+    var el = document.getElementById(id);
+    el.addEventListener('input', function(){
+      params[id] = +el.value;
+      syncSliderFill(el);
+      var vEl = document.getElementById('v_'+id);
+      if(vEl.firstChild) vEl.firstChild.nodeValue = params[id];
+      if(id==='density') rebuildDrops();
+      updateBadge();
+      clearActivePreset();
+    });
+  });
+
+  function clearActivePreset(){
+    document.querySelectorAll('#presetGroup button').forEach(function(b){ b.classList.remove('active'); });
+  }
+
+  function applyModeVisibility(mode){
+    var showPrecip = mode!=='heatwave';
+    var showElectrical = mode!=='heatwave';
+    toggleGroup('precipGroup', showPrecip);
+    toggleGroup('electricalGroup', showElectrical);
+    toggleGroup('tornadoGroup', mode==='tornado');
+    toggleGroup('surgeGroup', mode==='surge');
+    toggleGroup('downburstGroup', mode==='downburst');
+    toggleGroup('heatwaveGroup', mode==='heatwave');
+
+    var L = PRECIP_LABELS[mode];
+    if(L){
+      document.getElementById('precipTitle').textContent = L.title;
+      document.getElementById('lbl_density').textContent = L.density;
+      document.getElementById('lbl_dropSize').textContent = L.size;
+      document.getElementById('lbl_fallSpeed').textContent = L.fall;
+      document.getElementById('lbl_splashIntensity').textContent = L.impact;
+    }
+  }
+  function toggleGroup(id, show){ var el=document.getElementById(id); if(el) el.hidden = !show; }
+
+  function resetModeState(){
+    splashes.length = 0; ripples.length = 0; shards.length = 0; bolts.length = 0; flashQueue = [];
+    debrisFloats.length = 0;
+    snowDepth = 0; waterLevel = 0; iceGlaze = 0;
+    funnel.x = W*0.5; funnel.wobblePhase = rand(0,10);
+    burst.age = 0; burst.x = W*0.5;
+    crackPaths = null; glazeGlints = null;
+  }
+
+  function applyPreset(mode, severity){
+    var preset = MODE_PRESETS[mode][severity];
+    Object.assign(params, EXTRA_DEFAULTS, preset);
+  }
+
+  function setMode(mode){
+    if(!MODE_META[mode]) return;
+    currentMode = mode;
+    document.querySelectorAll('#modeGrid button').forEach(function(b){
+      b.classList.toggle('active', b.getAttribute('data-mode')===mode);
+    });
+    document.getElementById('modeDesc').textContent = MODE_META[mode].desc;
+    document.getElementById('nameplateSub').textContent = '即時 '+MODE_META[mode].label+' 物理模型 · EXTREME WEATHER';
+    applyModeVisibility(mode);
+    applyPreset(mode, currentSeverity);
+    resetModeState();
+    applyParamsToUI();
+    rebuildDrops();
+  }
+
+  document.getElementById('modeGrid').addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-mode]');
+    if(!btn) return;
+    setMode(btn.getAttribute('data-mode'));
+  });
+
+  document.getElementById('presetGroup').addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-preset]');
+    if(!btn) return;
+    currentSeverity = btn.getAttribute('data-preset');
+    clearActivePreset();
+    btn.classList.add('active');
+    applyPreset(currentMode, currentSeverity);
+    applyParamsToUI();
+    rebuildDrops();
+  });
+
+  var thunderToggle = document.getElementById('thunderToggle');
+  function setThunder(on){
+    params.thunder = on;
+    thunderToggle.classList.toggle('on', on);
+    thunderToggle.setAttribute('aria-checked', on ? 'true':'false');
+    if(on) ensureAudio();
+  }
+  thunderToggle.addEventListener('click', function(){ setThunder(!params.thunder); });
+  thunderToggle.addEventListener('keydown', function(e){
+    if(e.key==='Enter' || e.key===' '){ e.preventDefault(); setThunder(!params.thunder); }
+  });
+
+  var btnPause = document.getElementById('btnPause');
+  var pauseLabel = document.getElementById('pauseLabel');
+  btnPause.addEventListener('click', function(){
+    paused = !paused;
+    pauseLabel.textContent = paused ? '繼續' : '暫停';
+  });
+
+  document.getElementById('btnReset').addEventListener('click', function(){
+    currentSeverity = 'mid';
+    document.querySelectorAll('#presetGroup button').forEach(function(b){
+      b.classList.toggle('active', b.getAttribute('data-preset')==='mid');
+    });
+    setMode(currentMode);
+  });
+
+  document.getElementById('btnLocate').addEventListener('click', requestLocation);
+  document.getElementById('btnApplyScenario').addEventListener('click', function(){
+    if(!scenario.mode) return;
+    currentSeverity = scenario.severity;
+    document.querySelectorAll('#presetGroup button').forEach(function(b){
+      b.classList.toggle('active', b.getAttribute('data-preset')===scenario.severity);
+    });
+    setMode(scenario.mode);
+  });
+
+  var daylightToggle = document.getElementById('daylightToggle');
+  daylightToggle.addEventListener('click', function(){
+    daylight.enabled = !daylight.enabled;
+    daylightToggle.classList.toggle('on', daylight.enabled);
+    daylightToggle.setAttribute('aria-checked', daylight.enabled ? 'true':'false');
+  });
+
+  var panel = document.getElementById('panel');
+  var panelToggle = document.getElementById('panelToggle');
+  var toggleIcon = document.getElementById('toggleIcon');
+  var collapsed = false;
+  panelToggle.addEventListener('click', function(){
+    collapsed = !collapsed;
+    panel.classList.toggle('collapsed', collapsed);
+    panelToggle.classList.toggle('shifted', !collapsed);
+    toggleIcon.style.transform = collapsed ? 'rotate(180deg)' : 'rotate(0deg)';
+  });
+  panelToggle.classList.add('shifted');
+
+  document.addEventListener('pointerdown', function(){ ensureAudio(); }, { once:true });
+  window.addEventListener('resize', resize);
+
+  // ---------------- init ----------------
+  resize();
+  funnel.x = W*0.5;
+  rebuildClouds();
+  applyModeVisibility(currentMode);
+  applyPreset(currentMode, currentSeverity);
+  applyParamsToUI();
+  rebuildDrops();
+  requestAnimationFrame(frame);
+
+})();
+</script>
