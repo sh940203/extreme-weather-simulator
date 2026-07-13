@@ -339,13 +339,18 @@
         <div class="scenario-row"><span>當地時間</span><span class="v" id="scTime">—</span></div>
         <div class="scenario-row"><span>氣候帶 / 季節</span><span class="v" id="scZone">—</span></div>
         <div class="scenario-row"><span>太陽高度角</span><span class="v" id="scSun">—</span></div>
+        <div class="scenario-row"><span>偵測地點</span><span class="v" id="scPlace">—</span></div>
         <div class="scenario-result" id="scResult">→ 推算情境：—</div>
         <button class="iconbtn wide" id="btnApplyScenario"><span>套用此情境</span></button>
         <div class="rocker-row" style="margin-top:12px;">
           <span class="lbl">跟隨當地晝夜光照</span>
           <div class="rocker" id="daylightToggle" role="switch" aria-checked="false" tabindex="0"><div class="knob"></div></div>
         </div>
-        <div class="hint" style="padding-bottom:10px;">依緯度氣候帶＋當地季節推算，非即時觀測天氣。</div>
+        <div class="rocker-row">
+          <span class="lbl">顯示在地地景</span>
+          <div class="rocker" id="landmarkToggle" role="switch" aria-checked="false" tabindex="0"><div class="knob"></div></div>
+        </div>
+        <div class="hint" style="padding-bottom:10px;">依緯度氣候帶＋當地季節推算，非即時觀測天氣；地景為對應知名地標的示意剪影，僅供氣氛營造。</div>
       </div>
       <div class="hint" id="scenarioHint">用你目前的座標與當地時間，推算此刻最可能出現的極端天氣型態與晝夜光照——這是粗略的氣候推算，不是即時天氣觀測。</div>
     </div>
@@ -592,9 +597,13 @@
       severe: { windSpeed:200, gustiness:90, density:2800, dropSize:160, fallSpeed:80,  splashIntensity:0,  cloudDensity:70, fogOpacity:88, lightningFreq:5 }
     },
     heatwave: {
-      light:  { windSpeed:30, gustiness:20, cloudDensity:10, fogOpacity:15, hazeIntensity:35, glare:45 },
-      mid:    { windSpeed:55, gustiness:35, cloudDensity:5,  fogOpacity:25, hazeIntensity:60, glare:68 },
-      severe: { windSpeed:80, gustiness:55, cloudDensity:0,  fogOpacity:35, hazeIntensity:90, glare:92 }
+      // a clear, high-pressure heatwave produces no precipitation and no
+      // lightning — every core param is set explicitly (not just the ones
+      // heatwave's own UI shows) so switching modes never leaves a stale
+      // lightningFreq/density from whatever ran before this
+      light:  { windSpeed:30, gustiness:20, density:0, dropSize:100, fallSpeed:100, splashIntensity:0, cloudDensity:10, fogOpacity:15, lightningFreq:0, hazeIntensity:35, glare:45 },
+      mid:    { windSpeed:55, gustiness:35, density:0, dropSize:100, fallSpeed:100, splashIntensity:0, cloudDensity:5,  fogOpacity:25, lightningFreq:0, hazeIntensity:60, glare:68 },
+      severe: { windSpeed:80, gustiness:55, density:0, dropSize:100, fallSpeed:100, splashIntensity:0, cloudDensity:0,  fogOpacity:35, lightningFreq:0, hazeIntensity:90, glare:92 }
     },
     downburst: {
       light:  { windSpeed:60,  gustiness:50, density:900,  dropSize:95,  fallSpeed:110, splashIntensity:50, cloudDensity:65, fogOpacity:22, lightningFreq:5, burstStrength:35, burstFrequency:30 },
@@ -1010,7 +1019,9 @@
       if(cl.x - cl.rx > W) cl.x = -cl.rx;
     }
 
-    var freqPerSec = params.lightningFreq/60;
+    // defensive on top of the preset data being correct: a clear heatwave
+    // sky cannot produce lightning regardless of any stale slider value
+    var freqPerSec = currentMode!=='heatwave' ? params.lightningFreq/60 : 0;
     if(Math.random() < freqPerSec*dt){ triggerLightning(); }
 
     for(var bo=bolts.length-1;bo>=0;bo--){
@@ -1496,6 +1507,7 @@
       ctx.fillRect(0,0,W,H);
     }
     drawGround();
+    drawLandmark();
     drawFunnel();
     drawBurst();
     drawParticles();
@@ -1676,6 +1688,9 @@
     document.getElementById('scResult').textContent = '→ 推算情境：'+MODE_META[scenario.mode].label+'（'+SEVERITY_LABEL[scenario.severity]+'）';
 
     daylight.factor = Math.max(0, Math.min(1, (alt+6)/26));
+
+    activeLandmark = findNearestRegion(scenario.lat, scenario.lng);
+    document.getElementById('scPlace').textContent = activeLandmark ? activeLandmark.name : '（超出台灣範圍，無地景比對）';
   }
 
   function requestLocation(){
@@ -1694,6 +1709,305 @@
   }
 
   setInterval(function(){ if(scenario.lat!=null) refreshScenarioDisplay(); }, 60000);
+
+  // ---------------- Taiwan landmark scenes ----------------
+  // Reverse-geocoding needs a network call this sandbox can't make, so
+  // "which city am I in" is a nearest-neighbour match against one
+  // representative point per county/city, each paired with a hand-drawn
+  // silhouette of a well-known local landmark.
+  var TW_REGIONS = [
+    { name:'台北市 · 台北101',       lat:25.038, lng:121.565, landmark:'taipei101' },
+    { name:'新北市 · 九份山城',      lat:25.017, lng:121.463, landmark:'jiufen' },
+    { name:'桃園市 · 大溪橋',        lat:24.993, lng:121.301, landmark:'daxibridge' },
+    { name:'台中市 · 望高寮',        lat:24.147, lng:120.674, landmark:'wanggaoliao' },
+    { name:'台南市 · 安平古堡',      lat:22.999, lng:120.227, landmark:'anping' },
+    { name:'高雄市 · 85大樓',        lat:22.627, lng:120.301, landmark:'kaohsiung85' },
+    { name:'新竹市 · 風城風車',      lat:24.804, lng:120.968, landmark:'windturbine' },
+    { name:'新竹縣 · 內灣山城',      lat:24.839, lng:121.014, landmark:'hillvillage' },
+    { name:'苗栗縣 · 龍騰斷橋',      lat:24.560, lng:120.821, landmark:'brokenbridge' },
+    { name:'彰化縣 · 八卦山大佛',    lat:24.075, lng:120.538, landmark:'bigbuddha' },
+    { name:'南投縣 · 日月潭',        lat:23.960, lng:120.971, landmark:'sunmoonlake' },
+    { name:'雲林縣 · 北港朝天宮',    lat:23.709, lng:120.431, landmark:'temple' },
+    { name:'嘉義市 · 射日塔',        lat:23.480, lng:120.449, landmark:'sunshootingtower' },
+    { name:'嘉義縣 · 阿里山',        lat:23.458, lng:120.256, landmark:'alishan' },
+    { name:'屏東縣 · 大鵬灣跨海大橋',lat:22.552, lng:120.549, landmark:'longbridge' },
+    { name:'宜蘭縣 · 龜山島',        lat:24.757, lng:121.754, landmark:'islet' },
+    { name:'花蓮縣 · 清水斷崖',      lat:23.991, lng:121.601, landmark:'cliff' },
+    { name:'台東縣 · 鹿野高台熱氣球',lat:22.758, lng:121.144, landmark:'balloons' },
+    { name:'基隆市 · 基隆嶼',        lat:25.128, lng:121.741, landmark:'keelungislet' },
+    { name:'澎湖縣 · 澎湖跨海大橋',  lat:23.565, lng:119.579, landmark:'penghubridge' },
+    { name:'金門縣 · 風獅爺',        lat:24.436, lng:118.317, landmark:'windlion' },
+    { name:'連江縣 · 馬祖石頭屋',    lat:26.160, lng:119.951, landmark:'stonevillage' }
+  ];
+
+  function haversineKm(lat1,lng1,lat2,lng2){
+    var R=6371, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
+    var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+      Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  }
+
+  function findNearestRegion(lat,lng){
+    var best=null, bestDist=Infinity;
+    for(var i=0;i<TW_REGIONS.length;i++){
+      var d = haversineKm(lat,lng,TW_REGIONS[i].lat,TW_REGIONS[i].lng);
+      if(d<bestDist){ bestDist=d; best=TW_REGIONS[i]; }
+    }
+    return bestDist<180 ? best : null; // outside ~180km of any point isn't meaningfully "in Taiwan"
+  }
+
+  var activeLandmark = null;
+  var landmarkEnabled = false;
+
+  // deterministic pseudo-random: gives "scattered" decoration positions that
+  // are stable across frames without needing a build/cache/resize-reset step
+  function hash01(n){ var x = Math.sin(n*12.9898)*43758.5453; return x-Math.floor(x); }
+
+  var SIL_FILL = 'rgba(9,12,18,0.94)';
+
+  function silLights(cx, seed, n, xr, y0, y1){
+    ctx.save();
+    for(var k=0;k<n;k++){
+      var lx = cx + (hash01(seed+k)*2-1)*xr;
+      var ly = y0 + hash01(seed+k+50)*(y1-y0);
+      var phase = hash01(seed+k+100)*10;
+      var rate = 1+hash01(seed+k+200)*1.6;
+      var tw = 0.4+0.6*Math.max(0,Math.sin(t*rate+phase));
+      ctx.globalAlpha = 0.35+tw*0.55;
+      ctx.fillStyle = 'rgba(255,'+Math.round(195+tw*35)+',125,1)';
+      ctx.fillRect(lx-1, ly-1, 2, 2);
+    }
+    ctx.restore();
+  }
+
+  function drawTower(cx, gY, h, baseW, style, seed){
+    ctx.fillStyle = SIL_FILL;
+    if(style==='taper'){
+      var segs=7, segH=h/segs;
+      for(var i=0;i<segs;i++){
+        var w = baseW*(1-i/segs*0.6);
+        ctx.fillRect(cx-w/2, gY-h+i*segH, w, segH+0.5);
+      }
+      ctx.beginPath(); ctx.moveTo(cx-2,gY-h); ctx.lineTo(cx,gY-h-30); ctx.lineTo(cx+2,gY-h); ctx.closePath(); ctx.fill();
+    } else if(style==='twin'){
+      ctx.fillRect(cx-baseW*0.55, gY-h*0.7, baseW*0.42, h*0.7);
+      ctx.fillRect(cx+baseW*0.13, gY-h*0.7, baseW*0.42, h*0.7);
+      ctx.fillRect(cx-baseW*0.4, gY-h, baseW*0.8, h*0.32);
+    } else if(style==='pagoda'){
+      var tiers=6, tierH=h/tiers;
+      for(var j=0;j<tiers;j++){
+        var tw=baseW*(1-j/tiers*0.35), ty=gY-j*tierH;
+        ctx.beginPath();
+        ctx.moveTo(cx-tw/2,ty); ctx.lineTo(cx+tw/2,ty); ctx.lineTo(cx+tw*0.32,ty-tierH*0.75); ctx.lineTo(cx-tw*0.32,ty-tierH*0.75);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    silLights(cx, seed, 22, baseW*0.42, gY-h+10, gY-14);
+  }
+
+  function drawMountains(cx, gY, opts){
+    var peaks=opts.peaks||5, w=opts.w||W*0.9, maxH=opts.maxH||160, seed=opts.seed||0;
+    ctx.fillStyle = SIL_FILL;
+    ctx.beginPath();
+    ctx.moveTo(cx-w/2, gY);
+    var n=24;
+    for(var i=0;i<=n;i++){
+      var f=i/n;
+      var ridge = 0.5+0.5*hash01(seed+i*0.7);
+      var y = gY - maxH*ridge*(0.5+0.5*Math.sin(f*peaks*Math.PI+seed));
+      ctx.lineTo(cx-w/2+f*w, y);
+    }
+    ctx.lineTo(cx+w/2, gY); ctx.closePath(); ctx.fill();
+    if(opts.lake){
+      ctx.fillStyle = 'rgba(70,110,150,0.35)';
+      ctx.beginPath(); ctx.ellipse(cx, gY-6, w*0.22, 9, 0, 0, Math.PI*2); ctx.fill();
+    }
+    if(opts.cloudSea){
+      ctx.save(); ctx.globalAlpha=0.5;
+      ctx.fillStyle = 'rgba(210,220,235,0.4)';
+      ctx.fillRect(cx-w/2, gY-maxH*0.42, w, 14);
+      ctx.restore();
+    }
+    if(opts.buddha) drawBigBuddhaShape(cx, gY, maxH*0.55);
+  }
+
+  function drawBigBuddhaShape(cx, gY, h){
+    ctx.fillStyle = SIL_FILL;
+    ctx.beginPath(); ctx.arc(cx, gY-h*0.82, h*0.16, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx-h*0.32, gY); ctx.quadraticCurveTo(cx-h*0.34, gY-h*0.5, cx, gY-h*0.66);
+    ctx.quadraticCurveTo(cx+h*0.34, gY-h*0.5, cx+h*0.32, gY);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function drawArchBridge(cx, gY, span, archH, style){
+    ctx.fillStyle = SIL_FILL;
+    var deckY = gY - archH*0.55;
+    ctx.fillRect(cx-span/2, deckY-3, span, 5);
+    var piers = style==='broken' ? 3 : (style==='long'?7:1);
+    for(var i=0;i<piers;i++){
+      if(style==='broken' && i===1) continue; // missing middle span = ruins
+      var f = piers===1?0.5:i/(piers-1);
+      var px = cx-span/2+f*span;
+      ctx.beginPath();
+      ctx.moveTo(px-span/(piers*2.2), deckY);
+      ctx.quadraticCurveTo(px, deckY+archH*0.5, px+span/(piers*2.2), deckY);
+      ctx.lineTo(px+span/(piers*3.2), gY);
+      ctx.lineTo(px-span/(piers*3.2), gY);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  function drawCliffCoast(cx, gY){
+    ctx.fillStyle = SIL_FILL;
+    ctx.beginPath();
+    ctx.moveTo(cx-W*0.5, gY);
+    ctx.lineTo(cx-W*0.1, gY);
+    ctx.lineTo(cx+W*0.02, gY-180);
+    ctx.lineTo(cx+W*0.14, gY-140);
+    ctx.lineTo(cx+W*0.5, gY-30);
+    ctx.lineTo(cx+W*0.5, gY+40); ctx.lineTo(cx-W*0.5, gY+40);
+    ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.globalAlpha=0.18; ctx.fillStyle='rgba(150,180,210,1)';
+    ctx.fillRect(cx-W*0.5, gY-4, W, 10);
+    ctx.restore();
+  }
+
+  function drawIslet(cx, gY, w, h){
+    ctx.fillStyle = SIL_FILL;
+    ctx.beginPath();
+    ctx.moveTo(cx-w/2, gY);
+    ctx.quadraticCurveTo(cx-w*0.2, gY-h, cx+w*0.1, gY-h*0.8);
+    ctx.quadraticCurveTo(cx+w*0.4, gY-h*0.5, cx+w/2, gY);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function drawTempleRoof(cx, gY, w, seed){
+    ctx.fillStyle = SIL_FILL;
+    var h=44;
+    ctx.fillRect(cx-w*0.42, gY-h*0.5, w*0.84, h*0.5);
+    ctx.beginPath();
+    ctx.moveTo(cx-w/2, gY-h*0.5);
+    ctx.quadraticCurveTo(cx-w*0.36, gY-h*1.15, cx-w*0.44, gY-h*0.85);
+    ctx.lineTo(cx+w*0.44, gY-h*0.85);
+    ctx.quadraticCurveTo(cx+w*0.36, gY-h*1.15, cx+w/2, gY-h*0.5);
+    ctx.closePath(); ctx.fill();
+    silLights(cx, seed, 8, w*0.36, gY-h*0.45, gY-6);
+  }
+
+  function drawBalloons(cx, gY, seed){
+    var colors = [[230,90,70],[240,180,60],[70,150,210],[120,190,110],[200,110,190]];
+    for(var i=0;i<6;i++){
+      var bx = cx + (hash01(seed+i)*2-1)*W*0.22;
+      var by = gY - 70 - hash01(seed+i+20)*140;
+      var r = 15+hash01(seed+i+40)*8;
+      var c = colors[i%colors.length];
+      ctx.fillStyle = 'rgba('+c[0]+','+c[1]+','+c[2]+',0.85)';
+      ctx.beginPath(); ctx.ellipse(bx, by, r*0.78, r, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = SIL_FILL;
+      ctx.fillRect(bx-1.4, by+r, 2.8, 10);
+    }
+  }
+
+  function drawWindTurbines(cx, gY, seed){
+    ctx.strokeStyle = SIL_FILL; ctx.fillStyle = SIL_FILL; ctx.lineWidth=2.5;
+    for(var i=0;i<4;i++){
+      var tx = cx + (i-1.5)*46;
+      var th = 70+hash01(seed+i)*16;
+      ctx.beginPath(); ctx.moveTo(tx, gY); ctx.lineTo(tx, gY-th); ctx.stroke();
+      var ang = t*1.4 + i*1.3;
+      for(var b=0;b<3;b++){
+        var a = ang + b*(Math.PI*2/3);
+        ctx.beginPath();
+        ctx.moveTo(tx, gY-th);
+        ctx.lineTo(tx+Math.cos(a)*20, gY-th+Math.sin(a)*20);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function drawWindLion(cx, gY){
+    var h=64;
+    ctx.fillStyle = SIL_FILL;
+    ctx.beginPath(); ctx.arc(cx, gY-h*0.86, h*0.16, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx-h*0.24, gY); ctx.lineTo(cx-h*0.26, gY-h*0.55); ctx.quadraticCurveTo(cx, gY-h*0.78, cx+h*0.26, gY-h*0.55);
+    ctx.lineTo(cx+h*0.24, gY); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx-h*0.09,gY-h*0.98,h*0.05,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx+h*0.09,gY-h*0.98,h*0.05,0,Math.PI*2); ctx.fill();
+  }
+
+  function drawStoneVillage(cx, gY, seed){
+    ctx.fillStyle = SIL_FILL;
+    for(var i=0;i<9;i++){
+      var f = i/8;
+      var hx = cx + (f-0.5)*W*0.32;
+      var hy = gY - 6 - Math.abs(f-0.5)*40;
+      var hh = 14+hash01(seed+i)*10;
+      ctx.fillRect(hx-9, hy-hh, 18, hh);
+      ctx.beginPath(); ctx.moveTo(hx-10,hy-hh); ctx.lineTo(hx,hy-hh-8); ctx.lineTo(hx+10,hy-hh); ctx.closePath(); ctx.fill();
+    }
+    silLights(cx, seed, 10, W*0.16, gY-40, gY-8);
+  }
+
+  function drawHillPavilion(cx, gY, seed){
+    ctx.fillStyle = SIL_FILL;
+    ctx.beginPath();
+    ctx.moveTo(cx-W*0.32, gY);
+    ctx.quadraticCurveTo(cx-40, gY-90, cx+10, gY-96);
+    ctx.quadraticCurveTo(cx+70, gY-100, cx+W*0.32, gY-20);
+    ctx.lineTo(cx+W*0.32, gY); ctx.closePath(); ctx.fill();
+    var px=cx+6, py=gY-96;
+    ctx.fillRect(px-14, py-2, 28, 3);
+    ctx.fillRect(px-11, py-16, 3, 16); ctx.fillRect(px+8, py-16, 3, 16);
+    ctx.beginPath(); ctx.moveTo(px-16,py-16); ctx.lineTo(px,py-28); ctx.lineTo(px+16,py-16); ctx.closePath(); ctx.fill();
+    silLights(cx, seed, 40, W*0.46, gY-24, gY-2);
+  }
+
+  function drawFort(cx, gY, seed){
+    var w=170, h=48;
+    ctx.fillStyle = SIL_FILL;
+    ctx.fillRect(cx-w/2, gY-h*0.6, w, h*0.6);
+    ctx.fillRect(cx+w*0.28, gY-h*1.05, w*0.14, h*0.55);
+    ctx.beginPath(); ctx.moveTo(cx+w*0.26,gY-h*1.05); ctx.lineTo(cx+w*0.35,gY-h*1.22); ctx.lineTo(cx+w*0.44,gY-h*1.05); ctx.closePath(); ctx.fill();
+    silLights(cx, seed, 6, w*0.4, gY-h*0.5, gY-10);
+  }
+
+  var LANDMARK_DRAW = {
+    taipei101:        function(cx,gY){ drawTower(cx,gY,210,32,'taper',1); },
+    jiufen:           function(cx,gY){ drawMountains(cx,gY,{peaks:3,maxH:120,seed:2}); silLights(cx,2,26,W*0.28,gY-90,gY-10); },
+    daxibridge:       function(cx,gY){ drawArchBridge(cx,gY,220,70,'simple'); },
+    wanggaoliao:      function(cx,gY){ drawHillPavilion(cx,gY,4); },
+    anping:           function(cx,gY){ drawFort(cx,gY,5); },
+    kaohsiung85:      function(cx,gY){ drawTower(cx,gY,190,40,'twin',6); },
+    windturbine:      function(cx,gY){ drawWindTurbines(cx,gY,7); },
+    hillvillage:      function(cx,gY){ drawMountains(cx,gY,{peaks:2,maxH:90,seed:8}); drawStoneVillage(cx,gY,8); },
+    brokenbridge:     function(cx,gY){ drawArchBridge(cx,gY,200,55,'broken'); },
+    bigbuddha:        function(cx,gY){ drawMountains(cx,gY,{peaks:2,maxH:70,seed:10,buddha:true}); },
+    sunmoonlake:      function(cx,gY){ drawMountains(cx,gY,{peaks:4,maxH:110,seed:11,lake:true}); },
+    temple:           function(cx,gY){ drawTempleRoof(cx,gY,180,12); },
+    sunshootingtower: function(cx,gY){ drawTower(cx,gY,150,30,'pagoda',13); },
+    alishan:          function(cx,gY){ drawMountains(cx,gY,{peaks:5,maxH:170,seed:14,cloudSea:true}); },
+    longbridge:       function(cx,gY){ drawArchBridge(cx,gY,280,50,'long'); },
+    islet:            function(cx,gY){ drawIslet(cx,gY,90,60); },
+    cliff:            function(cx,gY){ drawCliffCoast(cx,gY); },
+    balloons:         function(cx,gY){ drawMountains(cx,gY,{peaks:2,maxH:60,seed:18}); drawBalloons(cx,gY,18); },
+    keelungislet:     function(cx,gY){ drawIslet(cx,gY,60,42); },
+    penghubridge:     function(cx,gY){ drawArchBridge(cx,gY,320,30,'long'); },
+    windlion:         function(cx,gY){ drawWindLion(cx,gY); },
+    stonevillage:     function(cx,gY){ drawMountains(cx,gY,{peaks:2,maxH:70,seed:22}); drawStoneVillage(cx,gY,22); }
+  };
+
+  function drawLandmark(){
+    if(!landmarkEnabled || !activeLandmark) return;
+    var fn = LANDMARK_DRAW[activeLandmark.landmark];
+    if(!fn) return;
+    var gY = currentGroundLevel();
+    var cx = (!collapsed && W>720) ? W*0.4 : W*0.5;
+    ctx.save();
+    fn(cx, gY);
+    ctx.restore();
+  }
 
   // ---------------- UI wiring ----------------
   var sliderIds = ['windSpeed','gustiness','density','dropSize','fallSpeed','splashIntensity',
@@ -1829,13 +2143,37 @@
   });
 
   document.getElementById('btnLocate').addEventListener('click', requestLocation);
-  document.getElementById('btnApplyScenario').addEventListener('click', function(){
+  var btnApplyScenario = document.getElementById('btnApplyScenario');
+  btnApplyScenario.addEventListener('click', function(){
     if(!scenario.mode) return;
     currentSeverity = scenario.severity;
     document.querySelectorAll('#presetGroup button').forEach(function(b){
       b.classList.toggle('active', b.getAttribute('data-preset')===scenario.severity);
     });
     setMode(scenario.mode);
+
+    if(activeLandmark){
+      landmarkEnabled = true;
+      landmarkToggle.classList.add('on');
+      landmarkToggle.setAttribute('aria-checked','true');
+    }
+
+    // explicit confirmation, independent of whether the mode visibly
+    // changed — the inferred scenario can coincidentally match whatever
+    // was already active (e.g. Taiwan in summer defaults to typhoon/mid,
+    // same as app startup), which otherwise reads as "nothing happened"
+    var span = btnApplyScenario.querySelector('span');
+    var original = span.textContent;
+    span.textContent = '已套用 ✓';
+    btnApplyScenario.disabled = true;
+    setTimeout(function(){ span.textContent = original; btnApplyScenario.disabled = false; }, 1100);
+  });
+
+  var landmarkToggle = document.getElementById('landmarkToggle');
+  landmarkToggle.addEventListener('click', function(){
+    landmarkEnabled = !landmarkEnabled;
+    landmarkToggle.classList.toggle('on', landmarkEnabled);
+    landmarkToggle.setAttribute('aria-checked', landmarkEnabled ? 'true':'false');
   });
 
   var daylightToggle = document.getElementById('daylightToggle');
