@@ -367,6 +367,9 @@
         <button data-mode="downburst">下擊暴流</button>
         <button data-mode="icestorm">凍雨冰暴</button>
         <button data-mode="heatwave">熱浪乾旱</button>
+        <button data-mode="sunny">晴天</button>
+        <button data-mode="cloudy">多雲</button>
+        <button data-mode="lightrain">小雨陣雨</button>
       </div>
       <div class="mode-desc" id="modeDesc">熱帶氣旋伴隨強風驟雨與外圍雷雨胞</div>
     </div>
@@ -534,13 +537,17 @@
     surge:    { label:'風暴潮',     desc:'颱風低壓疊加強風堆高海水，海水倒灌陸地' },
     downburst:{ label:'下擊暴流',   desc:'雷暴中心強烈冷空氣下衝觸地，向四周輻散爆發強風' },
     icestorm: { label:'凍雨冰暴',   desc:'過冷雨滴落地瞬間結凍，表面覆上一層透明冰殼' },
-    heatwave: { label:'熱浪乾旱',   desc:'持續高溫少雨，地表龜裂、空氣因熱扭曲' }
+    heatwave: { label:'熱浪乾旱',   desc:'持續高溫少雨，地表龜裂、空氣因熱扭曲' },
+    sunny:    { label:'晴天',       desc:'高壓籠罩、萬里無雲，日照穩定溫和' },
+    cloudy:   { label:'多雲',       desc:'雲層增厚、陽光時隱時現，無降水' },
+    lightrain:{ label:'小雨陣雨',   desc:'鋒面或低壓帶通過，斷續降下小雨' }
   };
 
   var PRECIP_LABELS = {
     typhoon:  { title:'降水 · Precipitation', density:'雨滴密度', size:'雨滴粒徑', fall:'落下速度', impact:'濺水強度' },
     surge:    { title:'降水 · Precipitation', density:'雨滴密度', size:'雨滴粒徑', fall:'落下速度', impact:'濺水強度' },
     downburst:{ title:'降水 · Precipitation', density:'雨滴密度', size:'雨滴粒徑', fall:'落下速度', impact:'濺水強度' },
+    lightrain:{ title:'降水 · Precipitation', density:'雨滴密度', size:'雨滴粒徑', fall:'落下速度', impact:'濺水強度' },
     hail:     { title:'冰雹 · Hail',          density:'冰雹密度', size:'冰雹粒徑', fall:'墜落速度', impact:'碎裂強度' },
     tornado:  { title:'碎屑 · Debris',        density:'碎屑密度', size:'碎屑大小', fall:'捲揚速度', impact:'濺落強度' },
     blizzard: { title:'降雪 · Snow',          density:'雪花密度', size:'雪花大小', fall:'飄落速度', impact:'積雪速率' },
@@ -548,7 +555,9 @@
     icestorm: { title:'凍雨 · Freezing Rain', density:'雨滴密度', size:'雨滴粒徑', fall:'落下速度', impact:'結冰速率' }
   };
 
-  // visual/physics identity per mode: sky gradient stops, cloud/fog tint, particle shape & ground behavior
+  // visual/physics identity per mode: sky gradient stops, cloud/fog tint, particle shape & ground behavior.
+  // precip:false / electrical:false hide those UI groups and are read generically
+  // (not by hardcoded mode name) so a future mode without them can't forget to opt out.
   var MODE_PROFILE = {
     typhoon:  { sky:['#03050a','#080d16','#0e1522'], cloud:[28,36,50],  fog:[20,26,36],  shape:'line', ground:'wet',   gravity:260, windMul:0.60, colors:[[150,175,220],[175,196,235],[205,220,250]] },
     surge:    { sky:['#03050a','#080d16','#0e1522'], cloud:[28,36,50],  fog:[20,26,36],  shape:'line', ground:'water', gravity:260, windMul:0.60, colors:[[150,175,220],[175,196,235],[205,220,250]] },
@@ -558,7 +567,10 @@
     dust:     { sky:['#140b04','#20130a','#2c1a0e'], cloud:[92,58,28],  fog:[122,78,38], shape:'line', ground:'dust',  gravity:22,  windMul:1.00, colors:[[150,108,66],[178,132,86],[208,164,110]] },
     downburst:{ sky:['#04070b','#0a1018','#131a21'], cloud:[26,34,42],  fog:[18,24,30],  shape:'line', ground:'wet',   gravity:300, windMul:0.55, colors:[[160,180,215],[182,198,230],[208,220,245]] },
     icestorm: { sky:['#04070d','#0a121c','#101c28'], cloud:[40,54,68],  fog:[28,38,48],  shape:'line', ground:'glaze', gravity:220, windMul:0.45, colors:[[170,195,225],[190,210,235],[212,228,247]] },
-    heatwave: { sky:['#12253a','#a9803f','#c79a52'], cloud:[255,244,214],fog:[255,236,196],shape:'none', ground:'dry',   gravity:0,   windMul:0.45, colors:[[0,0,0],[0,0,0],[0,0,0]] }
+    heatwave: { sky:['#12253a','#a9803f','#c79a52'], cloud:[255,244,214],fog:[255,236,196],shape:'none', ground:'dry',  gravity:0,   windMul:0.45, colors:[[0,0,0],[0,0,0],[0,0,0]], precip:false, electrical:false },
+    sunny:    { sky:['#1a3a5c','#3f6f9e','#8db4d6'], cloud:[255,255,255],fog:[220,235,250],shape:'none', ground:'calm', gravity:0,   windMul:0.5,  colors:[[0,0,0],[0,0,0],[0,0,0]], precip:false, electrical:false },
+    cloudy:   { sky:['#161e28','#3a4452','#5c6672'], cloud:[130,138,148],fog:[140,148,158],shape:'none', ground:'calm', gravity:0,   windMul:0.55, colors:[[0,0,0],[0,0,0],[0,0,0]], precip:false, electrical:false },
+    lightrain:{ sky:['#0a121c','#1c2836','#323e4c'], cloud:[95,105,120],fog:[75,85,100],  shape:'line', ground:'wet',  gravity:200, windMul:0.40, colors:[[140,160,185],[160,180,205],[185,200,220]] }
   };
 
   // { windSpeed, gustiness, density, dropSize, fallSpeed, splashIntensity, cloudDensity, fogOpacity, lightningFreq,
@@ -614,6 +626,21 @@
       light:  { windSpeed:35,  gustiness:20, density:500,  dropSize:80,  fallSpeed:70,  splashIntensity:25, cloudDensity:60, fogOpacity:30, lightningFreq:0 },
       mid:    { windSpeed:60,  gustiness:35, density:950,  dropSize:95,  fallSpeed:90,  splashIntensity:45, cloudDensity:78, fogOpacity:45, lightningFreq:0 },
       severe: { windSpeed:95,  gustiness:55, density:1500, dropSize:110, fallSpeed:110, splashIntensity:70, cloudDensity:92, fogOpacity:60, lightningFreq:1 }
+    },
+    sunny: {
+      light:  { windSpeed:12, gustiness:8,  density:0, dropSize:100, fallSpeed:100, splashIntensity:0, cloudDensity:5,  fogOpacity:5,  lightningFreq:0 },
+      mid:    { windSpeed:22, gustiness:14, density:0, dropSize:100, fallSpeed:100, splashIntensity:0, cloudDensity:10, fogOpacity:8,  lightningFreq:0 },
+      severe: { windSpeed:35, gustiness:22, density:0, dropSize:100, fallSpeed:100, splashIntensity:0, cloudDensity:16, fogOpacity:10, lightningFreq:0 }
+    },
+    cloudy: {
+      light:  { windSpeed:18, gustiness:16, density:0, dropSize:100, fallSpeed:100, splashIntensity:0, cloudDensity:55, fogOpacity:15, lightningFreq:0 },
+      mid:    { windSpeed:28, gustiness:24, density:0, dropSize:100, fallSpeed:100, splashIntensity:0, cloudDensity:75, fogOpacity:20, lightningFreq:0 },
+      severe: { windSpeed:40, gustiness:34, density:0, dropSize:100, fallSpeed:100, splashIntensity:0, cloudDensity:92, fogOpacity:28, lightningFreq:0 }
+    },
+    lightrain: {
+      light:  { windSpeed:22, gustiness:18, density:220, dropSize:60, fallSpeed:55, splashIntensity:20, cloudDensity:65, fogOpacity:20, lightningFreq:0 },
+      mid:    { windSpeed:36, gustiness:26, density:480, dropSize:75, fallSpeed:75, splashIntensity:38, cloudDensity:82, fogOpacity:28, lightningFreq:0 },
+      severe: { windSpeed:55, gustiness:36, density:820, dropSize:90, fallSpeed:95, splashIntensity:55, cloudDensity:95, fogOpacity:36, lightningFreq:1 }
     }
   };
 
@@ -664,7 +691,7 @@
   // dragging the density slider (which fires continuously) doesn't reset
   // every drop's position and cause a visible "pop" in the rain field.
   function rebuildDrops(){
-    if(currentMode === 'heatwave'){ drops.length = 0; return; }
+    if(MODE_PROFILE[currentMode].shape === 'none'){ drops.length = 0; return; }
     var total = Math.min(Math.round(params.density), MAX_DROPS);
     if(drops.length > total){
       drops.length = total;
@@ -1157,6 +1184,18 @@
       return;
     }
 
+    if(profile.ground==='calm'){
+      var gCalm = ctx.createLinearGradient(0, gY, 0, H);
+      gCalm.addColorStop(0, 'rgba(52,64,46,0.85)');
+      gCalm.addColorStop(1, 'rgba(24,30,22,0.95)');
+      ctx.fillStyle = gCalm;
+      ctx.fillRect(0, gY, W, H-gY);
+      ctx.strokeStyle = 'rgba(140,160,120,0.18)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, gY+0.5); ctx.lineTo(W, gY+0.5); ctx.stroke();
+      return;
+    }
+
     if(profile.ground==='dust'){
       var g3 = ctx.createLinearGradient(0, gY, 0, H);
       g3.addColorStop(0, 'rgba(90,58,30,0.85)');
@@ -1586,6 +1625,24 @@
         if(ig<70) return ['道路結冰警戒','var(--amber)'];
         return ['嚴重冰暴（電力設施風險）','var(--danger)'];
       }
+      case 'sunny': {
+        var sw = params.windSpeed;
+        if(sw<20) return ['晴朗微風','var(--ok)'];
+        if(sw<30) return ['晴天有風','var(--ok)'];
+        return ['晴天強風','var(--cyan)'];
+      }
+      case 'cloudy': {
+        var cd = params.cloudDensity;
+        if(cd<65) return ['晴時多雲','var(--ok)'];
+        if(cd<85) return ['多雲','var(--ok)'];
+        return ['陰天','var(--cyan)'];
+      }
+      case 'lightrain': {
+        var ld = params.density;
+        if(ld<350) return ['毛毛雨','var(--ok)'];
+        if(ld<650) return ['小雨','var(--ok)'];
+        return ['陣雨','var(--cyan)'];
+      }
     }
     return ['—','var(--ok)'];
   }
@@ -1607,6 +1664,12 @@
         return '推估瞬間陣風 '+Math.round(90+params.burstStrength*3.4)+' km/h ・ 脈動週期 '+burst.interval.toFixed(1)+'s';
       case 'icestorm':
         return '模擬冰層厚度 '+iceGlaze.toFixed(1)+' mm ・ 路面結冰風險';
+      case 'sunny':
+        return '風速 '+params.windSpeed+' km/h ・ 雲量 '+params.cloudDensity+'%';
+      case 'cloudy':
+        return '雲量 '+params.cloudDensity+'% ・ 風速 '+params.windSpeed+' km/h';
+      case 'lightrain':
+        return '雨量密度 '+params.density+' ・ 風速 '+params.windSpeed+' km/h';
     }
     return '';
   }
@@ -1663,12 +1726,43 @@
   // (cyclone season), temperate spring leans hail (classic severe-convection
   // season), temperate winter leans ice storm, polar leans blizzard year
   // round with severity tracking the season.
+  // The plausible extreme-weather pick per zone×season (unchanged from
+  // before), but it's now only USED with some probability — most days,
+  // even in "typhoon season," are ordinary weather. EXTREME_CHANCE sets
+  // how often the season actually produces its extreme event; the rest of
+  // the time a normal-weather mode is chosen instead via NORMAL_WEIGHTS.
   var SCENARIO_TABLE = {
     tropical:    { summer:['typhoon','severe'], autumn:['typhoon','mid'],   winter:['downburst','light'], spring:['downburst','mid'] },
     subtropical: { summer:['typhoon','mid'],    autumn:['typhoon','light'], winter:['dust','light'],      spring:['downburst','light'] },
     temperate:   { summer:['downburst','mid'],  autumn:['downburst','light'],winter:['icestorm','mid'],   spring:['hail','light'] },
     polar:       { summer:['blizzard','light'], autumn:['blizzard','mid'],  winter:['blizzard','severe'], spring:['icestorm','mid'] }
   };
+  var EXTREME_CHANCE = {
+    tropical:    { summer:0.35, autumn:0.22, winter:0.08, spring:0.15 },
+    subtropical: { summer:0.22, autumn:0.12, winter:0.06, spring:0.10 },
+    temperate:   { summer:0.15, autumn:0.10, winter:0.12, spring:0.12 },
+    polar:       { summer:0.08, autumn:0.15, winter:0.35, spring:0.15 }
+  };
+  var NORMAL_WEIGHTS = {
+    tropical:    { sunny:0.45, cloudy:0.25, lightrain:0.30 },
+    subtropical: { sunny:0.50, cloudy:0.30, lightrain:0.20 },
+    temperate:   { sunny:0.40, cloudy:0.40, lightrain:0.20 },
+    polar:       { sunny:0.30, cloudy:0.50, lightrain:0.20 }
+  };
+
+  function weightedPick(weights){
+    var r = Math.random(), acc=0, last=null;
+    for(var k in weights){ last=k; acc+=weights[k]; if(r<=acc) return k; }
+    return last;
+  }
+
+  // Only rerolled when the user explicitly (re-)locates — not on every
+  // periodic display refresh, so the suggestion doesn't flip-flop every
+  // minute while the card just sits there.
+  function pickScenario(zone, season){
+    if(Math.random() < EXTREME_CHANCE[zone][season]) return SCENARIO_TABLE[zone][season];
+    return [weightedPick(NORMAL_WEIGHTS[zone]), 'mid'];
+  }
 
   function refreshScenarioDisplay(){
     if(scenario.lat==null) return;
@@ -1676,8 +1770,6 @@
     var alt = computeSunAltitude(scenario.lat, now);
     var zone = climateZoneFor(scenario.lat);
     var season = seasonFor(scenario.lat, now);
-    var pick = SCENARIO_TABLE[zone][season];
-    scenario.mode = pick[0]; scenario.severity = pick[1];
 
     document.getElementById('scLatLng').textContent =
       Math.abs(scenario.lat).toFixed(2)+'°'+(scenario.lat>=0?'N':'S')+', '+
@@ -1700,6 +1792,10 @@
     navigator.geolocation.getCurrentPosition(function(pos){
       scenario.lat = pos.coords.latitude;
       scenario.lng = pos.coords.longitude;
+      var zone = climateZoneFor(scenario.lat);
+      var season = seasonFor(scenario.lat, new Date());
+      var pick = pickScenario(zone, season);
+      scenario.mode = pick[0]; scenario.severity = pick[1];
       document.getElementById('scenarioCard').hidden = false;
       label.textContent = '重新定位';
       refreshScenarioDisplay();
@@ -2049,8 +2145,9 @@
   }
 
   function applyModeVisibility(mode){
-    var showPrecip = mode!=='heatwave';
-    var showElectrical = mode!=='heatwave';
+    var profile = MODE_PROFILE[mode];
+    var showPrecip = profile.precip !== false;
+    var showElectrical = profile.electrical !== false;
     toggleGroup('precipGroup', showPrecip);
     toggleGroup('electricalGroup', showElectrical);
     toggleGroup('tornadoGroup', mode==='tornado');
